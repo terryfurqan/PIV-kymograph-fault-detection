@@ -139,6 +139,19 @@
         <span id="txt-flip-label">Dorongan: Kiri ➔ Kanan</span>
       </button>
 
+      <!-- Background Photo Overlay & Blend Controls -->
+      <div class="flex items-center space-x-1.5 bg-slate-800/90 px-2.5 py-1 rounded border border-slate-700">
+        <button id="btn-toggle-photo" class="flex items-center space-x-1 text-amber-300 bg-amber-950/80 hover:bg-amber-900 px-2 py-0.5 rounded border border-amber-600 cursor-pointer font-bold text-xs transition shadow-sm" title="Toggle Foto Latar Eksperimen [Hotkey: P]">
+          <span>📷</span>
+          <span id="txt-photo-label">Foto: ON</span>
+        </button>
+        <label class="text-[11px] text-slate-300 font-semibold flex items-center space-x-1 ml-1" title="Atur Transparansi / Blend Foto Eksperimen (0% Heatmap Murni - 100% Foto Murni)">
+          <span>Blend</span>
+          <input type="range" id="rng-photo-opacity" min="0" max="100" step="5" value="50" class="w-16 h-1 bg-slate-700 rounded cursor-pointer">
+          <span id="txt-photo-opacity" class="text-amber-400 font-mono w-7 text-right">50%</span>
+        </label>
+      </div>
+
       <!-- Save / Load / Export -->
       <div class="flex items-center space-x-1 pl-2 border-l border-slate-700">
         <button id="btn-load-benchmark" class="px-2 py-1 font-semibold rounded bg-amber-950/70 hover:bg-amber-900 text-amber-300 border border-amber-700 transition" title="Muat Contoh Benchmark Default (F1–F8) untuk Referensi">
@@ -634,6 +647,10 @@
       showTransects: true,
       showGhostTrace: true,  // Toggle ghost continuity line from prior frame
       flipHorizontal: true,  // Default: Pusher on LEFT moving to RIGHT (standard sandbox convention)
+      photoOverlayEnabled: true, // Default: Background Photo ON
+      photoOpacity: 0.50,        // 0.00 = pure heatmap, 1.00 = pure photo, 0.50 = optimal blend
+      photoCache: new Map(),     // in-memory image cache: expId_frameIdx -> Image
+      photoLoading: new Set(),
       corridorMm: 8.0,
 
       activeTool: 'autotrack', // 'autotrack', 'guidesnap', 'manual', 'panzoom', 'eraser'
@@ -2133,6 +2150,60 @@
       };
     }
 
+    // --- BACKGROUND PHOTO LOADER & PREFETCHER ---
+    function getOrLoadPhoto(expId, frameIdx) {
+      if (!expId || frameIdx === undefined || frameIdx === null) return null;
+      const key = `${expId}_${frameIdx}`;
+      if (state.photoCache.has(key)) {
+        return state.photoCache.get(key);
+      }
+      if (state.photoLoading.has(key)) return null;
+
+      state.photoLoading.add(key);
+      const img = new Image();
+      const padIdx = String(frameIdx).padStart(4, '0');
+      const url = `assets/resized_photos/${expId}/frame_${padIdx}.jpg`;
+      img.onload = () => {
+        state.photoCache.set(key, img);
+        state.photoLoading.delete(key);
+        if (state.expId === expId && state.currentFrameIdx === frameIdx) {
+          renderMapView();
+        }
+      };
+      img.onerror = () => {
+        state.photoLoading.delete(key);
+      };
+      img.src = url;
+
+      // Aggressively prefetch neighbor frames (+1..+5, -1..-3)
+      prefetchNeighborPhotos(expId, frameIdx);
+      return null;
+    }
+
+    function prefetchNeighborPhotos(expId, currentIdx) {
+      const exp = state.exp;
+      if (!exp) return;
+      const neighbors = [
+        currentIdx + 1, currentIdx + 2, currentIdx + 3, currentIdx + 4, currentIdx + 5,
+        currentIdx - 1, currentIdx - 2, currentIdx - 3
+      ];
+      neighbors.forEach(idx => {
+        if (idx >= 0 && idx < exp.active_frames) {
+          const k = `${expId}_${idx}`;
+          if (!state.photoCache.has(k) && !state.photoLoading.has(k)) {
+            state.photoLoading.add(k);
+            const im = new Image();
+            im.onload = () => {
+              state.photoCache.set(k, im);
+              state.photoLoading.delete(k);
+            };
+            im.onerror = () => state.photoLoading.delete(k);
+            im.src = `assets/resized_photos/${expId}/frame_${String(idx).padStart(4, '0')}.jpg`;
+          }
+        }
+      });
+    }
+
     // --- RENDER 2D MAP VIEW CANVAS ---
     function renderMapView() {
       if (!mapCanvas.width || !state.exp) return;
@@ -2151,6 +2222,8 @@
           : state.colormapMode;
         const lut = LUTS[cmapName] || LUTS.inferno;
         const threshU8 = physicalToU8Threshold(proxy, state.threshold);
+
+        const showPhoto = state.photoOverlayEnabled && (state.photoOpacity > 0.0);
 
         // 1. Build 2D Map ImageData in offscreenCanvas (Flip vertically so row 0 = bottom = y_min)
         const imgData = offscreenCtx.createImageData(exp.map_w, exp.map_h);
@@ -2171,7 +2244,18 @@
               dst[p] = lut[l];
               dst[p + 1] = lut[l + 1];
               dst[p + 2] = lut[l + 2];
-              dst[p + 3] = 255;
+              if (showPhoto) {
+                if (state.photoOpacity >= 0.99) {
+                  dst[p + 3] = 0; // 100% pure photo
+                } else {
+                  // Strain-weighted alpha: zero or noise strain is transparent so sand is crisp.
+                  const heatmapWeight = 1.0 - state.photoOpacity;
+                  const strainAlpha = (u8 <= 8) ? 0 : Math.min(1.0, (u8 - 6) / 36.0);
+                  dst[p + 3] = Math.round(255 * strainAlpha * heatmapWeight);
+                }
+              } else {
+                dst[p + 3] = 255;
+              }
             }
           }
         }
@@ -2189,6 +2273,24 @@
         mapCtx.save();
         mapCtx.imageSmoothingEnabled = true;
         mapCtx.imageSmoothingQuality = 'high';
+
+        // 1B. Draw Background Resized Photo (if enabled)
+        if (state.photoOverlayEnabled) {
+          const bgImg = getOrLoadPhoto(state.expId, frameIdx);
+          if (bgImg && bgImg.complete && bgImg.naturalWidth) {
+            mapCtx.save();
+            if (state.flipHorizontal) {
+              mapCtx.translate(tl.x + drawW, tl.y);
+              mapCtx.scale(-1, 1);
+              mapCtx.drawImage(bgImg, 0, 0, drawW, drawH);
+            } else {
+              mapCtx.drawImage(bgImg, tl.x, tl.y, drawW, drawH);
+            }
+            mapCtx.restore();
+          }
+        }
+
+        // 1C. Draw Strain Rate Heatmap Layer on Top
         mapCtx.drawImage(offscreenCanvas, tl.x, tl.y, br.x - tl.x, br.y - tl.y);
 
         // Border box
@@ -3711,6 +3813,34 @@
       };
       document.getElementById('btn-toggle-flip')?.addEventListener('click', toggleFlip);
 
+      // Background Photo Overlay Toggle & Blend Slider
+      const togglePhotoOverlay = () => {
+        state.photoOverlayEnabled = !state.photoOverlayEnabled;
+        const btn = document.getElementById('btn-toggle-photo');
+        const lbl = document.getElementById('txt-photo-label');
+        if (lbl) lbl.textContent = state.photoOverlayEnabled ? 'Foto: ON' : 'Foto: OFF';
+        if (btn) {
+          if (state.photoOverlayEnabled) {
+            btn.classList.add('bg-amber-950/80', 'text-amber-300', 'border-amber-600');
+            btn.classList.remove('bg-slate-800', 'text-slate-400', 'border-slate-700');
+          } else {
+            btn.classList.remove('bg-amber-950/80', 'text-amber-300', 'border-amber-600');
+            btn.classList.add('bg-slate-800', 'text-slate-400', 'border-slate-700');
+          }
+        }
+        renderMapView();
+        setStatus(state.photoOverlayEnabled ? '📷 Foto latar eksperimen aktif.' : '📷 Foto latar eksperimen nonaktif (Heatmap murni).');
+      };
+      document.getElementById('btn-toggle-photo')?.addEventListener('click', togglePhotoOverlay);
+
+      const rngPhotoOpacity = document.getElementById('rng-photo-opacity');
+      const txtPhotoOpacity = document.getElementById('txt-photo-opacity');
+      rngPhotoOpacity?.addEventListener('input', (e) => {
+        state.photoOpacity = parseFloat(e.target.value) / 100.0;
+        if (txtPhotoOpacity) txtPhotoOpacity.textContent = `${e.target.value}%`;
+        renderMapView();
+      });
+
       // Top Header Benchmark & Clear Session buttons
       document.getElementById('btn-load-benchmark')?.addEventListener('click', loadBenchmarkFaults);
       document.getElementById('btn-clear-all-faults')?.addEventListener('click', clearAllFaults);
@@ -3869,6 +3999,21 @@
         else if (e.key === 'n' || e.key === 'N') document.getElementById('btn-next-detect')?.click();
         else if (e.key === 'b' || e.key === 'B') document.getElementById('btn-retro-track')?.click();
         else if (e.key === 'h' || e.key === 'H') toggleFlip();
+        else if (e.key === 'p' || e.key === 'P') togglePhotoOverlay();
+        else if (e.key === '[') {
+          const val = Math.max(0, Math.round(state.photoOpacity * 100 - 10));
+          if (rngPhotoOpacity) rngPhotoOpacity.value = val;
+          state.photoOpacity = val / 100.0;
+          if (txtPhotoOpacity) txtPhotoOpacity.textContent = `${val}%`;
+          renderMapView();
+        }
+        else if (e.key === ']') {
+          const val = Math.min(100, Math.round(state.photoOpacity * 100 + 10));
+          if (rngPhotoOpacity) rngPhotoOpacity.value = val;
+          state.photoOpacity = val / 100.0;
+          if (txtPhotoOpacity) txtPhotoOpacity.textContent = `${val}%`;
+          renderMapView();
+        }
         else if (e.key === 'r' || e.key === 'R') document.getElementById('btn-reset-view').click();
       });
     }

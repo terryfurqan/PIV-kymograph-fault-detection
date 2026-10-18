@@ -1,0 +1,3286 @@
+<!DOCTYPE html>
+<html lang="id">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>FSR Analyzer — 2D Map-View Fault Surface Rupture Auto-Tracker & Kinematics</title>
+  <script src="https://www.gstatic.com/antigravity/web/dev/tailwindcss.min.js"></script>
+  <script src="fsr_autotracker_data.js"></script>
+  <style>
+    :root {
+      --bg: #070b12;
+      --panel: #0f172a;
+      --card: #1e293b;
+      --border: #334155;
+      --accent: #38bdf8;
+    }
+    * { box-sizing: border-box; }
+    body {
+      background: var(--bg);
+      color: #f8fafc;
+      font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Helvetica, Arial, sans-serif;
+      overflow: hidden;
+      user-select: none;
+    }
+    ::-webkit-scrollbar { width: 6px; height: 6px; }
+    ::-webkit-scrollbar-track { background: #0f172a; }
+    ::-webkit-scrollbar-thumb { background: #334155; border-radius: 3px; }
+    ::-webkit-scrollbar-thumb:hover { background: #475569; }
+
+    .tool-btn.active {
+      background: rgba(56, 189, 248, 0.22);
+      border-color: #38bdf8;
+      color: #38bdf8;
+      box-shadow: 0 0 10px rgba(56, 189, 248, 0.28);
+    }
+    .btn-onset.active {
+      background: rgba(245, 158, 11, 0.3) !important;
+      border-color: #f59e0b !important;
+      color: #fef08a !important;
+      box-shadow: 0 0 12px rgba(245, 158, 11, 0.45) !important;
+    }
+    .btn-breach.active {
+      background: rgba(244, 63, 94, 0.3) !important;
+      border-color: #f43f5e !important;
+      color: #fecdd3 !important;
+      box-shadow: 0 0 12px rgba(244, 63, 94, 0.45) !important;
+    }
+    .stage-btn.active {
+      box-shadow: 0 0 8px rgba(250, 204, 21, 0.35);
+      border-width: 1px;
+    }
+    input[type=range] { accent-color: #38bdf8; }
+  </style>
+</head>
+<body class="h-screen w-screen flex flex-col bg-[#070b12] text-slate-100 antialiased overflow-hidden">
+
+  <!-- ========================================================================= -->
+  <!-- 1. TOP COMMAND BAR                                                        -->
+  <!-- ========================================================================= -->
+  <header class="bg-[#0f172a] border-b border-slate-800 px-3 py-1.5 flex items-center justify-between flex-shrink-0 z-30 shadow-md">
+    <div class="flex items-center space-x-3">
+      <div class="flex items-center space-x-2">
+        <span class="px-2 py-0.5 text-[11px] font-black uppercase tracking-wider rounded bg-sky-950 text-sky-400 border border-sky-800">
+          GRAIN 2.1
+        </span>
+        <h1 class="text-sm font-bold text-white tracking-wide flex items-center gap-1.5">
+          <span>⚡</span>
+          <span class="text-amber-300 font-extrabold tracking-wide">FSR ANALYZER</span>
+          <span class="text-slate-400 text-xs font-normal">| 2D Map-View Seismic-Style Auto-Tracker</span>
+        </h1>
+      </div>
+
+      <!-- Experiment Selector -->
+      <div class="flex items-center space-x-1.5 pl-3 border-l border-slate-700">
+        <label class="text-[11px] text-slate-400 font-semibold uppercase">Exp:</label>
+        <select id="sel-experiment" class="bg-slate-800 text-sky-300 text-xs font-semibold rounded px-2 py-1 border border-slate-700 focus:outline-none focus:border-sky-500 cursor-pointer">
+          <option value="EXP_3">EXP 3 (Calibrated Master — 58.5 cm)</option>
+          <option value="EXP_1">EXP 1 (59.0 cm, 33.5 cm Shortening)</option>
+          <option value="EXP_2">EXP 2 (50.0 cm, 20.0 cm Shortening)</option>
+          <option value="EXP_0">EXP 0 (69.6 cm, 35.0 cm Shortening)</option>
+        </select>
+      </div>
+
+      <!-- Map View Proxy Mode: SR, VG, or Dual Split SR+VG -->
+      <div class="flex items-center space-x-1 bg-slate-900 p-0.5 rounded border border-slate-700">
+        <button id="btn-view-sr" class="view-tab px-2.5 py-0.5 text-xs font-bold rounded text-white bg-sky-600 transition" data-view="SR" title="2D Map View: Longitudinal Shortening Rate (SR: exx = -du/dx)">
+          Map SR (e_xx)
+        </button>
+        <button id="btn-view-vg" class="view-tab px-2.5 py-0.5 text-xs font-bold rounded text-slate-400 hover:text-white transition" data-view="VG" title="2D Map View: Spatial Velocity Magnitude Gradient (VG: |d|V|/dx|)">
+          Map VG (|∇V|)
+        </button>
+        <button id="btn-view-dual" class="view-tab px-2.5 py-0.5 text-xs font-bold rounded text-slate-400 hover:text-white transition" data-view="DUAL" title="Synchronized Side-by-Side Dual Map View (SR + VG)">
+          Dual Map (SR + VG)
+        </button>
+      </div>
+    </div>
+
+    <!-- Right Controls: Palette, Threshold, Export -->
+    <div class="flex items-center space-x-2.5 text-xs">
+      <div class="flex items-center space-x-1">
+        <label class="text-slate-400">Colormap:</label>
+        <select id="sel-colormap" class="bg-slate-800 text-slate-200 text-xs rounded px-2 py-1 border border-slate-700 focus:outline-none">
+          <option value="auto">Auto (Inferno SR / Plasma VG)</option>
+          <option value="inferno">Inferno</option>
+          <option value="plasma">Plasma</option>
+          <option value="turbo">Turbo</option>
+          <option value="seismic">Seismic BWR</option>
+          <option value="jet">Jet</option>
+        </select>
+      </div>
+
+      <!-- Calibrated Threshold Slider -->
+      <div class="flex items-center space-x-1.5 bg-slate-800/90 px-2.5 py-1 rounded border border-slate-700">
+        <label class="text-slate-300 font-semibold" title="Minimum SR/VG threshold to detect active FSR ridge">
+          T = <span class="text-sky-400 font-mono font-bold" id="txt-thresh-val">0.020</span>
+        </label>
+        <input type="range" id="rng-threshold" min="0.008" max="0.045" step="0.001" value="0.020" class="w-20 h-1 bg-slate-700 rounded cursor-pointer">
+        <label class="flex items-center space-x-1 text-[11px] text-amber-300 cursor-pointer ml-1" title="Highlight pixels >= Threshold T on Map View">
+          <input type="checkbox" id="chk-mask-thresh" class="rounded bg-slate-700 border-slate-600">
+          <span>Contour</span>
+        </label>
+      </div>
+
+      <!-- Transect Grid Toggle -->
+      <label class="flex items-center space-x-1 text-slate-300 bg-slate-800/70 px-2 py-1 rounded border border-slate-700 cursor-pointer">
+        <input type="checkbox" id="chk-show-transects" checked class="rounded bg-slate-700">
+        <span>40 Lines</span>
+      </label>
+
+      <!-- Save / Load / Export -->
+      <div class="flex items-center space-x-1 pl-2 border-l border-slate-700">
+        <button id="btn-load-benchmark" class="px-2 py-1 font-semibold rounded bg-amber-950/70 hover:bg-amber-900 text-amber-300 border border-amber-700 transition" title="Muat Contoh Benchmark Default (F1–F8) untuk Referensi">
+          📥 Benchmark
+        </button>
+        <button id="btn-clear-all-faults" class="px-2 py-1 font-semibold rounded bg-slate-800 hover:bg-rose-950 text-rose-300 border border-slate-700 transition" title="Bersihkan Semua Sesar pada Sesi Ini (Katalog Kosong)">
+          🗑️ Bersihkan Sesi
+        </button>
+        <button id="btn-save-json" class="px-2 py-1 font-semibold rounded bg-slate-800 hover:bg-slate-700 text-slate-200 border border-slate-600 transition" title="Save Map-View Fault Picks & Timing Keyframes to JSON">
+          💾 Save JSON
+        </button>
+        <button id="btn-load-json" class="px-2 py-1 font-semibold rounded bg-slate-800 hover:bg-slate-700 text-slate-200 border border-slate-600 transition" title="Load Saved JSON Project">
+          📂 Load
+        </button>
+        <input type="file" id="inp-load-json" accept=".json" class="hidden">
+        <button id="btn-export-csv" class="px-2 py-1 font-semibold rounded bg-emerald-950 hover:bg-emerald-900 text-emerald-300 border border-emerald-700 transition" title="Export Fault Timing & Lateral Propagation Kinematics CSV">
+          📊 Export CSV
+        </button>
+        <button id="btn-export-png" class="px-2 py-1 font-semibold rounded bg-sky-950 hover:bg-sky-900 text-sky-300 border border-sky-700 transition" title="Download Snapshot PNG of Map View">
+          📷 PNG
+        </button>
+      </div>
+    </div>
+  </header>
+
+  <!-- ========================================================================= -->
+  <!-- 2. INTERACTIVE MAP-VIEW PICKING & TIMING STAGE TOOLBAR                    -->
+  <!-- ========================================================================= -->
+  <div class="bg-[#131d31] border-b border-slate-800 px-3 py-1.5 flex items-center justify-between flex-shrink-0 z-20 text-xs">
+    <!-- Left: Map-View Horizon / Ridge Picking Tools -->
+    <div class="flex items-center space-x-1.5">
+      <span class="text-slate-400 font-bold uppercase tracking-wider mr-1">Map-View Tool:</span>
+
+      <button id="tool-autotrack" class="tool-btn active px-2.5 py-1 rounded border border-slate-700 bg-slate-800 text-slate-200 font-semibold flex items-center gap-1.5 hover:border-sky-500 transition" title="1-Click Map-View Auto-Track: Click any bright SR/VG band on Map View to auto-trace along strike Y [Key: 1]">
+        <span>🎯</span>
+        <span>1-Click Strike Auto-Track</span>
+        <span class="text-[10px] bg-sky-950 text-sky-300 px-1 rounded">[1]</span>
+      </button>
+
+      <button id="tool-guidesnap" class="tool-btn px-2.5 py-1 rounded border border-slate-700 bg-slate-800 text-slate-200 font-semibold flex items-center gap-1.5 hover:border-sky-500 transition" title="2-Point Guided Strike Snap (Dijkstra): Click start (X1,Y1) and end (X2,Y2) on Map View to snap along ridge crest [Key: 2]">
+        <span>⚡</span>
+        <span>2-Point Guided Snap</span>
+        <span class="text-[10px] bg-slate-700 text-slate-300 px-1 rounded">[2]</span>
+      </button>
+
+      <button id="tool-manual" class="tool-btn px-2.5 py-1 rounded border border-slate-700 bg-slate-800 text-slate-200 font-semibold flex items-center gap-1.5 hover:border-sky-500 transition" title="Manual Polyline & Vertex Drag on Map View: Click to add vertices, drag to nudge, Alt+Click to delete [Key: 3]">
+        <span>✏️</span>
+        <span>Manual Pick / Drag</span>
+        <span class="text-[10px] bg-slate-700 text-slate-300 px-1 rounded">[3]</span>
+      </button>
+
+      <button id="tool-panzoom" class="tool-btn px-2.5 py-1 rounded border border-slate-700 bg-slate-800 text-slate-200 font-semibold flex items-center gap-1.5 hover:border-sky-500 transition" title="Pan & Zoom Map View [Key: 4]">
+        <span>🔍</span>
+        <span>Pan / Zoom</span>
+        <span class="text-[10px] bg-slate-700 text-slate-300 px-1 rounded">[4]</span>
+      </button>
+
+      <!-- Fault Assignment Dropdown & Quick Add -->
+      <div class="flex items-center space-x-1 pl-2.5 ml-1 border-l border-slate-700">
+        <span class="text-slate-400 font-bold uppercase tracking-wider" title="Assign sesar aktif untuk picking">Sesar:</span>
+        <select id="sel-active-fault" class="bg-slate-800 text-sky-300 font-bold text-xs rounded px-2 py-0.5 border border-sky-600 focus:outline-none cursor-pointer" title="Pilih sesar target untuk penambahan pick"></select>
+        <button id="btn-quick-add-fault" class="px-2 py-0.5 rounded bg-sky-700 hover:bg-sky-600 text-white font-bold text-xs transition shadow" title="Tambah Sesar Baru (+ Sesar)">+ Sesar</button>
+      </div>
+
+      <!-- Dedicated 2-Point Inception & Final Rupture Auto-Track Buttons -->
+      <div class="flex items-center space-x-1 pl-2.5 ml-1 border-l border-slate-700">
+        <button id="btn-detect-onset" class="tool-btn btn-onset px-2.5 py-1 rounded border border-amber-500 bg-amber-950/80 text-amber-200 font-bold flex items-center gap-1.5 hover:bg-amber-900 hover:border-amber-400 transition shadow" title="1-Click Deteksi Awal (Nucleation Inception): Auto-track sesar saat inisiasi / onset [Hotkey: A]">
+          <span>⭐</span>
+          <span>Deteksi Awal</span>
+          <span class="text-[10px] bg-amber-900 text-amber-300 px-1 rounded font-mono">[A]</span>
+        </button>
+
+        <button id="btn-detect-breach" class="tool-btn btn-breach px-2.5 py-1 rounded border border-rose-500 bg-rose-950/80 text-rose-200 font-bold flex items-center gap-1.5 hover:bg-rose-900 hover:border-rose-400 transition shadow" title="1-Click Deteksi Final (Full Breach / Mature): Auto-track sesar saat mature / full breach [Hotkey: F]">
+          <span>🏁</span>
+          <span>Deteksi Final</span>
+          <span class="text-[10px] bg-rose-900 text-rose-300 px-1 rounded font-mono">[F]</span>
+        </button>
+
+        <!-- Dynamic 2-Point Interpolation Status Badge -->
+        <div id="badge-interp-status" class="flex items-center gap-1.5 px-2 py-0.5 rounded text-[11px] font-mono border border-slate-700 bg-slate-900/90 text-slate-400 shadow-sm transition" title="Status interpolasi otomatis berdasarkan 2 titik (Awal & Final)">
+          <span>⚡</span>
+          <span id="txt-interp-status">Pilih Awal (⭐) & Final (🏁)</span>
+        </div>
+      </div>
+    </div>
+
+    <!-- Right: Progressive Furthest Edge Detection, Ghost Continuity & Ridge Refinement -->
+    <div class="flex items-center space-x-2">
+      <!-- Progressive Step-by-Step Furthest Edge Detection -->
+      <div class="flex items-center space-x-1 bg-amber-950/50 p-0.5 rounded border border-amber-600/70 shadow-sm">
+        <button id="btn-detect-furthest" class="px-2.5 py-1 rounded bg-amber-600 hover:bg-amber-500 text-white font-bold transition flex items-center gap-1 shadow" title="Deteksi trace perambatan sesar ke tepi terjauh pada frame ini [Key: D]">
+          <span>🎯</span>
+          <span>Deteksi Tepi Terjauh</span>
+          <span class="text-[10px] bg-amber-950 text-amber-200 px-1 rounded font-mono">[D]</span>
+        </button>
+        <button id="btn-next-detect" class="px-2.5 py-1 rounded bg-emerald-600 hover:bg-emerald-500 text-white font-bold transition flex items-center gap-1 shadow" title="Maju 1 Frame lalu otomatis deteksi sampai tepi terjauh [Key: N]">
+          <span>⏩</span>
+          <span>Frame Berikutnya + Deteksi</span>
+          <span class="text-[10px] bg-emerald-950 text-emerald-200 px-1 rounded font-mono">[N]</span>
+        </button>
+      </div>
+
+      <!-- Backward Retro-Tracking from Mature Fault to Inception -->
+      <button id="btn-retro-track" class="px-2.5 py-1 rounded bg-purple-700 hover:bg-purple-600 text-white font-bold transition flex items-center gap-1 shadow" title="Lacak mundur (retro-track) dari sesar terbentuk sempurna ke frame-frame sebelumnya untuk mendeteksi onset dan menggambar plot Y vs strain ε [Key: B]">
+        <span>⏪</span>
+        <span>Lacak Mundur (Retro-Track)</span>
+        <span class="text-[10px] bg-purple-950 text-purple-200 px-1 rounded font-mono">[B]</span>
+      </button>
+
+      <!-- Ghost Continuity Reference Toggle -->
+      <label class="flex items-center space-x-1 text-sky-300 bg-sky-950/70 px-2 py-1 rounded border border-sky-800 cursor-pointer text-[11px]" title="Tampilkan garis putus-putus jejak sesar dari frame sebelumnya untuk mengevaluasi kontinuitas perambatan">
+        <input type="checkbox" id="chk-show-ghost" checked class="rounded bg-slate-700">
+        <span>👻 Kontinuitas (Ghost)</span>
+      </label>
+
+      <div class="flex items-center space-x-1 bg-slate-800/90 px-2 py-0.5 rounded border border-slate-700">
+        <label class="text-slate-400" title="Max horizontal ΔX step per strike row (mm)">Corridor ±:</label>
+        <input type="number" id="inp-corridor" min="2" max="30" step="1" value="8" class="w-10 bg-slate-900 text-sky-300 font-mono text-center rounded border border-slate-700 px-1 py-0.5">
+        <span class="text-slate-500">mm</span>
+      </div>
+
+      <button id="btn-snap-peak" class="px-2 py-1 rounded bg-slate-800 hover:bg-slate-700 text-sky-300 border border-slate-700 font-semibold transition" title="Snap current frame's fault vertices to local SR/VG peak crest [Key: Z]">
+        🧲 Snap Crest
+      </button>
+
+      <button id="btn-smooth-trace" class="px-2 py-1 rounded bg-slate-800 hover:bg-slate-700 text-sky-300 border border-slate-700 font-semibold transition" title="Smooth current fault trace along Y [Key: S]">
+        🌊 Smooth
+      </button>
+
+      <button id="btn-autodetect-lifecycle" class="px-2.5 py-1 rounded bg-indigo-950 hover:bg-indigo-900 text-indigo-200 border border-indigo-600 font-bold transition flex items-center gap-1" title="Scan across frames in active fault's X-corridor to auto-detect Onset (★) and Breach (■) frames">
+        <span>🚀</span> Auto-Scan
+      </button>
+
+      <button id="btn-reset-view" class="px-2 py-1 rounded bg-slate-800 hover:bg-slate-700 text-slate-300 border border-slate-700 font-semibold" title="Reset Map View Zoom/Pan [Key: R]">
+        Fit View
+      </button>
+    </div>
+  </div>
+
+  <!-- ========================================================================= -->
+  <!-- 3. MAIN WORKSPACE: 2D MAP VIEW (LEFT) + KINEMATICS & CATALOG (RIGHT)      -->
+  <!-- ========================================================================= -->
+  <div class="flex-1 flex overflow-hidden">
+
+    <!-- LEFT/CENTER: PRIMARY 2D MAP VIEW VIEWPORT + FRAME TIMELINE PLAYER -->
+    <div class="flex-1 flex flex-col bg-[#05080f] overflow-hidden relative">
+
+      <!-- Floating HUD Over Map View -->
+      <div class="absolute top-2.5 left-3 z-10 bg-slate-900/90 backdrop-blur-sm border border-slate-700/80 rounded-lg px-3 py-1.5 text-xs flex items-center space-x-3.5 font-mono shadow-lg pointer-events-none">
+        <div>
+          <span class="text-slate-400">Photo Frame:</span>
+          <span id="hud-photo-frame" class="text-amber-300 font-extrabold text-sm ml-1">#022</span>
+          <span id="hud-active-frame" class="text-slate-400 text-[11px] ml-0.5">(Act 013/311)</span>
+        </div>
+        <div class="border-l border-slate-700 pl-3">
+          <span class="text-slate-400">Strain ε:</span>
+          <span id="hud-strain" class="text-emerald-300 font-bold ml-1">3.80%</span>
+        </div>
+        <div class="border-l border-slate-700 pl-3">
+          <span class="text-slate-400">Motor Δd:</span>
+          <span id="hud-disp" class="text-purple-300 font-bold ml-1">22.3 mm</span>
+        </div>
+        <div class="border-l border-slate-700 pl-3">
+          <span class="text-slate-400">Cursor (X, Y):</span>
+          <span id="hud-xy" class="text-sky-300 font-bold ml-1">---, --- mm</span>
+        </div>
+        <div class="border-l border-slate-700 pl-3">
+          <span class="text-slate-400">SR / VG:</span>
+          <span id="hud-val" class="text-rose-300 font-bold ml-1">--- / ---</span>
+        </div>
+      </div>
+
+      <!-- Interactive Status Banner -->
+      <div class="absolute top-2.5 right-3 z-10 bg-sky-950/90 border border-sky-700/80 text-sky-200 rounded-lg px-3 py-1.5 text-xs shadow-lg flex items-center gap-2 pointer-events-none">
+        <span>🎯</span>
+        <span id="txt-status-banner">Observe SR/VG on Map View — Click on active fault band to auto-trace & record moment!</span>
+      </div>
+
+      <!-- PRIMARY 2D MAP VIEW CANVAS (X vs Y) -->
+      <div class="flex-1 relative overflow-hidden" id="map-canvas-wrap">
+        <canvas id="map-canvas" class="w-full h-full block cursor-crosshair"></canvas>
+      </div>
+
+      <!-- FRAME TIMELINE SCRUBBER & ACTIVITY SPARKLINE PLAYER -->
+      <div class="bg-[#0f172a] border-t border-slate-800 px-3 py-2 flex flex-col gap-1.5 flex-shrink-0 z-20">
+        <!-- Controls Row -->
+        <div class="flex items-center justify-between text-xs">
+          <div class="flex items-center space-x-1.5">
+            <button id="btn-frame-first" class="px-2 py-1 rounded bg-slate-800 hover:bg-slate-700 border border-slate-700 font-mono" title="First Frame">⏮</button>
+            <button id="btn-frame-prev10" class="px-2 py-1 rounded bg-slate-800 hover:bg-slate-700 border border-slate-700 font-mono" title="Back 10 Frames">-10</button>
+            <button id="btn-frame-prev" class="px-2.5 py-1 rounded bg-slate-800 hover:bg-slate-700 border border-slate-700 font-bold" title="Previous Frame (Left Arrow)">◀ -1</button>
+            <button id="btn-play-pause" class="px-3.5 py-1 rounded bg-sky-600 hover:bg-sky-500 text-white font-bold flex items-center gap-1 shadow" title="Play / Pause Time-Lapse (Spacebar)">
+              <span id="txt-play-icon">▶</span>
+              <span id="txt-play-label">Play</span>
+            </button>
+            <button id="btn-frame-next" class="px-2.5 py-1 rounded bg-slate-800 hover:bg-slate-700 border border-slate-700 font-bold" title="Next Frame (Right Arrow)">+1 ▶</button>
+            <button id="btn-frame-next10" class="px-2 py-1 rounded bg-slate-800 hover:bg-slate-700 border border-slate-700 font-mono" title="Forward 10 Frames">+10</button>
+            <button id="btn-frame-last" class="px-2 py-1 rounded bg-slate-800 hover:bg-slate-700 border border-slate-700 font-mono" title="Last Frame">⏭</button>
+
+            <div class="flex items-center space-x-1 pl-2 ml-1 border-l border-slate-700">
+              <span class="text-slate-400">Speed:</span>
+              <select id="sel-fps" class="bg-slate-800 text-slate-200 rounded px-1.5 py-0.5 border border-slate-700">
+                <option value="2">2 fps</option>
+                <option value="5">5 fps</option>
+                <option value="10" selected>10 fps</option>
+                <option value="20">20 fps</option>
+              </select>
+            </div>
+
+            <!-- Direct Photo Frame Jump Input -->
+            <div class="flex items-center space-x-1 pl-2 ml-1 border-l border-slate-700">
+              <span class="text-slate-400">Jump Photo Frame #:</span>
+              <input type="number" id="inp-jump-photo" min="0" max="600" value="22" class="w-14 bg-slate-900 text-amber-300 font-mono font-bold text-center rounded border border-slate-700 px-1 py-0.5">
+              <button id="btn-jump-photo" class="px-2 py-0.5 rounded bg-amber-950 hover:bg-amber-900 text-amber-300 border border-amber-700 font-semibold">Go</button>
+            </div>
+          </div>
+
+          <!-- Quick Jump Pills for User-Taught Reference Frames -->
+          <div class="flex items-center space-x-1 overflow-x-auto" id="quick-keyframe-pills">
+            <!-- Injected dynamically from active experiment's fault keyframes -->
+          </div>
+        </div>
+
+        <!-- Frame Range Slider + Sparkline Canvas -->
+        <div class="relative flex flex-col gap-0.5">
+          <input type="range" id="rng-frame" min="0" max="311" value="13" class="w-full h-1.5 bg-slate-700 rounded-lg cursor-pointer">
+          <div class="relative h-11 w-full bg-slate-950 rounded border border-slate-800 overflow-hidden cursor-pointer" id="sparkline-wrap" title="Click or drag along activity sparkline to scrub frames (Peaks = High SR/VG Faulting Episodes)">
+            <canvas id="sparkline-canvas" class="w-full h-full block"></canvas>
+            <div class="absolute top-0.5 left-2 text-[9px] text-slate-400 font-mono pointer-events-none">
+              Temporal SR/VG Peak Intensity & Active Transect % (Click peaks to inspect FSR moments)
+            </div>
+          </div>
+        </div>
+      </div>
+    </div>
+
+    <!-- RIGHT SIDEBAR: FAULT CATALOG, KEYFRAME MOMENTS & SYNCHRONIZED PLOTS -->
+    <div class="w-[430px] bg-[#0f172a] border-l border-slate-800 flex flex-col flex-shrink-0 z-20 overflow-hidden">
+
+      <!-- 1. FAULT CATALOG & KEYFRAME MOMENTS -->
+      <div class="p-2.5 border-b border-slate-800 flex items-center justify-between bg-slate-900/70">
+        <div class="flex items-center space-x-2">
+          <span class="text-xs font-bold text-slate-200 uppercase tracking-wider">Fault Catalog (F1–F8)</span>
+          <span id="badge-fault-count" class="px-1.5 py-0.2 text-[10px] font-bold rounded-full bg-sky-900 text-sky-300">8</span>
+        </div>
+        <div class="flex items-center space-x-1">
+          <button id="btn-add-fault" class="px-2 py-0.5 text-xs font-bold rounded bg-sky-600 hover:bg-sky-500 text-white transition">
+            + Add Fault
+          </button>
+        </div>
+      </div>
+
+      <!-- Fault Tabs Bar -->
+      <div class="px-2.5 py-1.5 border-b border-slate-800 bg-slate-950/60 flex items-center gap-1 overflow-x-auto flex-shrink-0" id="fault-tabs-bar">
+        <!-- Fault pill tabs injected here -->
+      </div>
+
+      <!-- Active Fault Keyframe Moments Inspector -->
+      <div class="p-2.5 border-b border-slate-800 bg-slate-900/40 flex flex-col gap-2">
+        <div class="flex items-center justify-between">
+          <div class="flex items-center space-x-2">
+            <input type="color" id="inp-active-fault-color" value="#ef4444" class="w-4 h-4 rounded cursor-pointer bg-transparent border-0">
+            <input type="text" id="inp-active-fault-name" value="Thrust Fault 1 (F1)" class="bg-slate-800/80 text-white font-bold text-xs px-2 py-0.5 rounded border border-slate-700 w-44">
+          </div>
+          <div class="flex items-center space-x-1 text-[11px]">
+            <button id="btn-clear-current-frame-pick" class="px-2 py-0.5 rounded bg-slate-800 hover:bg-rose-950 text-slate-300 hover:text-rose-300 border border-slate-700 transition" title="Remove keyframe at current frame">
+              Clear Frame Pick
+            </button>
+          </div>
+        </div>
+
+        <!-- Recorded Moments List for Active Fault -->
+        <div class="text-[11px] text-slate-400 font-semibold uppercase flex items-center justify-between">
+          <span>Recorded Map-View Moments (Click to Jump):</span>
+          <span id="txt-active-fault-corridor" class="font-mono text-sky-400">Corridor X: 380–425 mm</span>
+        </div>
+        <div id="active-fault-moments-list" class="max-h-28 overflow-y-auto space-y-1 pr-1">
+          <!-- Keyframe moment cards injected here -->
+        </div>
+
+        <!-- Summary Kinematics Cards for Active Fault -->
+        <div class="grid grid-cols-4 gap-1.5 text-center font-mono text-xs pt-1 border-t border-slate-800/80">
+          <div class="bg-slate-950/90 p-1.5 rounded border border-slate-800">
+            <div class="text-[9px] text-slate-400 uppercase font-sans">★ Onset</div>
+            <div class="text-amber-300 font-bold" id="card-onset-frame">Fr 22</div>
+            <div class="text-[10px] text-emerald-400" id="card-onset-eps">3.80%</div>
+          </div>
+          <div class="bg-slate-950/90 p-1.5 rounded border border-slate-800">
+            <div class="text-[9px] text-slate-400 uppercase font-sans">■ Breach</div>
+            <div class="text-rose-300 font-bold" id="card-breach-frame">Fr 26</div>
+            <div class="text-[10px] text-rose-400" id="card-breach-eps">4.49%</div>
+          </div>
+          <div class="bg-slate-950/90 p-1.5 rounded border border-slate-800">
+            <div class="text-[9px] text-slate-400 uppercase font-sans">Δε Rupture</div>
+            <div class="text-sky-300 font-bold" id="card-delta-eps">0.69%</div>
+            <div class="text-[10px] text-slate-400" id="card-delta-disp">4.0 mm</div>
+          </div>
+          <div class="bg-slate-950/90 p-1.5 rounded border border-slate-800">
+            <div class="text-[9px] text-slate-400 uppercase font-sans">V_lat</div>
+            <div class="text-emerald-300 font-bold" id="card-vlat">23.7 cm/m</div>
+            <div class="text-[10px] text-slate-400" id="card-vlat-mms">3.94 mm/s</div>
+          </div>
+        </div>
+      </div>
+
+      <!-- 2. SYNCHRONIZED PLOT A: LATERAL PROPAGATION KINEMATICS (Y vs STRAIN / FRAME) -->
+      <div class="p-2.5 border-b border-slate-800 flex-1 flex flex-col min-h-0">
+        <div class="flex items-center justify-between mb-1">
+          <span class="text-[11px] font-bold text-slate-300 uppercase tracking-wide">
+            📈 (A) Along-Strike Y vs Cumulative Strain ε (%)
+          </span>
+          <span class="text-[10px] text-slate-400">★ Onset | ◆ Growth | ■ Breach</span>
+        </div>
+        <div class="flex-1 bg-slate-950 rounded border border-slate-800 relative overflow-hidden cursor-pointer" title="Click anywhere on plot to jump Map View to that strain/frame">
+          <canvas id="kin-plot-canvas" class="w-full h-full block"></canvas>
+        </div>
+      </div>
+
+      <!-- 3. SYNCHRONIZED PLOT B: CENTERLINE KYMOGRAPH REFERENCE -->
+      <div class="p-2.5 flex-1 flex flex-col min-h-0">
+        <div class="flex items-center justify-between mb-1">
+          <span class="text-[11px] font-bold text-slate-300 uppercase tracking-wide">
+            🧭 (B) Centerline Reference Kymograph (X vs ε)
+          </span>
+          <span class="text-[10px] text-sky-400 font-mono">Synced Cursor Line</span>
+        </div>
+        <div class="flex-1 bg-slate-950 rounded border border-slate-800 relative overflow-hidden cursor-pointer" title="Click on Kymograph to jump 2D Map View to that exact frame">
+          <canvas id="kymo-ref-canvas" class="w-full h-full block"></canvas>
+        </div>
+      </div>
+
+    </div>
+  </div>
+
+  <!-- ========================================================================= -->
+  <!-- 4. BOTTOM COLLAPSIBLE MASTER KINEMATICS SUMMARY TABLE                     -->
+  <!-- ========================================================================= -->
+  <div class="bg-[#0f172a] border-t border-slate-800 flex-shrink-0 z-30 text-xs">
+    <div class="px-3 py-1 flex items-center justify-between bg-slate-900 cursor-pointer hover:bg-slate-800/80" id="btn-toggle-table">
+      <div class="flex items-center space-x-2">
+        <span id="txt-table-chevron" class="text-slate-400">▼</span>
+        <span class="font-bold text-slate-200 uppercase tracking-wider">
+          Master Fault Timing, Position & Lateral Propagation Kinematics Table
+        </span>
+      </div>
+      <div class="flex items-center space-x-4 text-[11px] font-mono text-slate-400">
+        <span>Click any row to inspect fault on 2D Map View</span>
+      </div>
+    </div>
+    <div id="table-wrap" class="max-h-36 overflow-y-auto px-3 py-1 bg-slate-950/90 border-t border-slate-800">
+      <table class="w-full text-left font-mono text-[11px] border-collapse">
+        <thead>
+          <tr class="text-slate-400 border-b border-slate-800 uppercase font-sans text-[10px]">
+            <th class="py-1 px-2">Fault</th>
+            <th class="py-1 px-2">★ Onset Photo Frame</th>
+            <th class="py-1 px-2">Inception ε (%)</th>
+            <th class="py-1 px-2">Onset X, Y (mm)</th>
+            <th class="py-1 px-2">◆ Growth Stages</th>
+            <th class="py-1 px-2">■ Breach Photo Frame</th>
+            <th class="py-1 px-2">Breach ε (%)</th>
+            <th class="py-1 px-2">Δε Rupture (%)</th>
+            <th class="py-1 px-2">Δd Motor (mm)</th>
+            <th class="py-1 px-2">Active Span ΔY (mm)</th>
+            <th class="py-1 px-2">V_lat (mm/s)</th>
+            <th class="py-1 px-2">V_lat (cm/min)</th>
+          </tr>
+        </thead>
+        <tbody id="kinematics-tbody" class="divide-y divide-slate-800/70"></tbody>
+      </table>
+    </div>
+  </div>
+
+  <!-- ========================================================================= -->
+  <!-- 5. CORE JAVASCRIPT ENGINE (2D MAP-VIEW AUTO-TRACKER & TIMING)             -->
+  <!-- ========================================================================= -->
+  <script>
+    // --- SCIENTIFIC 256-ENTRY COLORMAP LUTS ---
+    function buildColormapLUT(name) {
+      const lut = new Uint8ClampedArray(256 * 4);
+      for (let i = 0; i < 256; i++) {
+        const t = i / 255.0;
+        let r = 0, g = 0, b = 0;
+        if (i === 0) {
+          // Pristine sandpack background: deep dark navy/black
+          r = 8; g = 11; b = 18;
+        } else if (name === 'inferno') {
+          r = Math.min(255, Math.max(0, Math.round(255 * Math.pow(t, 0.55) * (t < 0.35 ? t * 2.2 : 1.0))));
+          g = Math.min(255, Math.max(0, Math.round(255 * Math.pow(Math.max(0, (t - 0.22) / 0.78), 1.35))));
+          b = Math.min(255, Math.max(0, Math.round(255 * (t < 0.5 ? Math.sin(t * Math.PI) * 0.75 : Math.max(0, (t - 0.75) * 3.5)))));
+        } else if (name === 'plasma') {
+          r = Math.min(255, Math.max(0, Math.round(255 * Math.min(1, 0.15 + 1.15 * t))));
+          g = Math.min(255, Math.max(0, Math.round(255 * Math.pow(t, 1.6))));
+          b = Math.min(255, Math.max(0, Math.round(255 * (t < 0.65 ? 0.55 + 0.45 * Math.sin(t * Math.PI) : Math.max(0, 1.0 - (t - 0.65) * 2.5)))));
+        } else if (name === 'turbo') {
+          r = Math.min(255, Math.max(0, Math.round(255 * Math.sin(Math.min(1, t * 1.1) * Math.PI * 0.85))));
+          g = Math.min(255, Math.max(0, Math.round(255 * Math.sin(t * Math.PI))));
+          b = Math.min(255, Math.max(0, Math.round(255 * Math.cos(t * Math.PI * 0.75))));
+        } else if (name === 'seismic') {
+          if (t < 0.5) {
+            const u = t * 2;
+            r = Math.round(40 + 215 * u); g = Math.round(80 + 175 * u); b = 255;
+          } else {
+            const u = (t - 0.5) * 2;
+            r = 255; g = Math.round(255 * (1 - u)); b = Math.round(255 * (1 - u));
+          }
+        } else {
+          // jet
+          r = Math.min(255, Math.max(0, Math.round(255 * (1.5 - Math.abs(4 * t - 3)))));
+          g = Math.min(255, Math.max(0, Math.round(255 * (1.5 - Math.abs(4 * t - 2)))));
+          b = Math.min(255, Math.max(0, Math.round(255 * (1.5 - Math.abs(4 * t - 1)))));
+        }
+        lut[i * 4 + 0] = r;
+        lut[i * 4 + 1] = g;
+        lut[i * 4 + 2] = b;
+        lut[i * 4 + 3] = 255;
+      }
+      return lut;
+    }
+
+    const LUTS = {
+      inferno: buildColormapLUT('inferno'),
+      plasma: buildColormapLUT('plasma'),
+      turbo: buildColormapLUT('turbo'),
+      seismic: buildColormapLUT('seismic'),
+      jet: buildColormapLUT('jet')
+    };
+
+    // Fast Zero-RLE Decoder
+    function decodeZeroRLE(b64Str, totalLen) {
+      const bin = atob(b64Str);
+      const out = new Uint8Array(totalLen);
+      let outIdx = 0;
+      const len = bin.length;
+      for (let i = 0; i < len; i++) {
+        const b = bin.charCodeAt(i);
+        if (b === 0) {
+          outIdx += bin.charCodeAt(++i);
+        } else {
+          out[outIdx++] = b;
+        }
+      }
+      return out;
+    }
+
+    // --- GLOBAL STATE ---
+    const state = {
+      expId: 'EXP_3',
+      exp: null,
+      viewMode: 'SR',        // 'SR', 'VG', 'DUAL'
+      colormapMode: 'auto',
+      threshold: 0.020,
+      maskThreshold: false,
+      showTransects: true,
+      showGhostTrace: true,  // Toggle ghost continuity line from prior frame
+      corridorMm: 8.0,
+
+      activeTool: 'autotrack', // 'autotrack', 'guidesnap', 'manual', 'panzoom'
+      activeStage: 'onset',    // 'onset', 'growth', 'breach'
+      activeFaultId: null,     // Clean session: no active fault initially
+      faults: [],              // Clean session: start with empty catalog
+
+      currentFrameIdx: 0,      // Active frame index (0 .. N-1)
+      isPlaying: false,
+      fps: 10,
+      playTimer: null,
+
+      // Decoded 3D Spatiotemporal Volumes: Uint8Array(N * map_h * map_w)
+      srVol: null,
+      vgVol: null,
+      kymoRefImgSR: null,
+      kymoRefImgVG: null,
+
+      // Map View Pan & Zoom
+      zoom: 1.0,
+      panX: 0,
+      panY: 0,
+      isPanning: false,
+      dragStart: { x: 0, y: 0 },
+
+      // Interactive Vertex Editing & Guided Seed
+      hoveredVertex: null,     // { faultId, kfIdx, ptIdx }
+      draggedVertex: null,
+      guidedSeedA: null,       // { x_mm, y_mm }
+    };
+
+    // --- DOM ELEMENTS ---
+    const mapCanvas = document.getElementById('map-canvas');
+    const mapCtx = mapCanvas.getContext('2d');
+    const sparkCanvas = document.getElementById('sparkline-canvas');
+    const sparkCtx = sparkCanvas.getContext('2d');
+    const kinCanvas = document.getElementById('kin-plot-canvas');
+    const kinCtx = kinCanvas.getContext('2d');
+    const kymoRefCanvas = document.getElementById('kymo-ref-canvas');
+    const kymoRefCtx = kymoRefCanvas.getContext('2d');
+
+    const offscreenCanvas = document.createElement('canvas');
+    const offscreenCtx = offscreenCanvas.getContext('2d');
+
+    // --- LOAD EXPERIMENT & DECODE 3D MAP-VIEW VOLUMES ---
+    function loadExperiment(expId) {
+      if (!window.FSR_EXPERIMENTS || !window.FSR_EXPERIMENTS[expId]) return;
+      state.expId = expId;
+      const exp = window.FSR_EXPERIMENTS[expId];
+      state.exp = exp;
+
+      const totalCells = exp.active_frames * exp.map_h * exp.map_w;
+      state.srVol = decodeZeroRLE(exp.map_sr_rle_b64, totalCells);
+      state.vgVol = decodeZeroRLE(exp.map_vg_rle_b64, totalCells);
+
+      offscreenCanvas.width = exp.map_w;
+      offscreenCanvas.height = exp.map_h;
+
+      // Start with completely CLEAN catalog per user request
+      state.faults = [];
+      state.activeFaultId = null;
+      state.currentFrameIdx = 0;
+
+      const rngFrame = document.getElementById('rng-frame');
+      rngFrame.max = exp.active_frames - 1;
+      rngFrame.value = state.currentFrameIdx;
+
+      if (exp.kymo_sr_image_url) {
+        const im1 = new Image();
+        im1.onload = () => { state.kymoRefImgSR = im1; renderKymoRef(); };
+        im1.src = exp.kymo_sr_image_url;
+      }
+      if (exp.kymo_vg_image_url) {
+        const im2 = new Image();
+        im2.onload = () => { state.kymoRefImgVG = im2; renderKymoRef(); };
+        im2.src = exp.kymo_vg_image_url;
+      }
+
+      refreshAllUI();
+      setStatus(`🗺️ Sesi ${expId} dimuat dengan katalog bersih. Silakan scrub frame & klik Map View untuk assign sesar.`);
+    }
+
+    // Load reference benchmark faults (F1–F8)
+    function loadBenchmarkFaults() {
+      if (!state.exp) return;
+      state.faults = JSON.parse(JSON.stringify(state.exp.default_faults || []));
+      state.faults.forEach(f => {
+        interpolateBetweenOnsetAndBreach(f);
+      });
+      if (state.faults.length > 0) {
+        state.activeFaultId = state.faults[0].id;
+        state.currentFrameIdx = state.faults[0].keyframes[0]?.active_frame || 0;
+      }
+      refreshAllUI();
+      setStatus(`📥 Contoh benchmark ${state.expId} dimuat (${state.faults.length} sesar).`);
+    }
+
+    // Clear all faults (reset to clean state)
+    function clearAllFaults() {
+      state.faults = [];
+      state.activeFaultId = null;
+      refreshAllUI();
+      setStatus(`🗑️ Katalog sesar dibersihkan. Sesi siap untuk picking manual dari awal.`);
+    }
+
+    // Get active fault, or create F1 automatically on first click
+    function getOrCreateActiveFault(seedX_mm, seedY_mm) {
+      if (!state.exp) return null;
+      if (state.faults.length === 0) {
+        const x_mm = (seedX_mm !== undefined && !isNaN(seedX_mm)) ? seedX_mm : state.exp.x_max_mm * 0.5;
+        const newF = {
+          id: 'F1',
+          name: 'Thrust Fault 1 (F1)',
+          color: '#ef4444',
+          visible: true,
+          locked: false,
+          corridor: [Math.max(5, Math.round(x_mm - 25)), Math.min(Math.round(state.exp.x_max_mm - 5), Math.round(x_mm + 25))],
+          keyframes: []
+        };
+        state.faults.push(newF);
+        state.activeFaultId = newF.id;
+        refreshAllUI();
+        setStatus(`✨ Sesar baru F1 otomatis dibuat & di-assign pada X=${x_mm.toFixed(1)} mm!`);
+        return newF;
+      }
+      let actF = state.faults.find(f => f.id === state.activeFaultId);
+      if (!actF) {
+        actF = state.faults[0];
+        state.activeFaultId = actF.id;
+      }
+      return actF;
+    }
+
+    // --- PHYSICAL VALUE SAMPLING AT (frameIdx, x_mm, y_mm) ---
+    function sampleMapValue(proxy, frameIdx, x_mm, y_mm) {
+      const exp = state.exp;
+      if (!exp) return 0;
+      const c = Math.round((x_mm / exp.x_max_mm) * (exp.map_w - 1));
+      const r = Math.round(((y_mm - exp.y_min_mm) / (exp.y_max_mm - exp.y_min_mm)) * (exp.map_h - 1));
+      if (c < 0 || c >= exp.map_w || r < 0 || r >= exp.map_h) return 0;
+
+      const vol = (proxy === 'VG') ? state.vgVol : state.srVol;
+      const range = (proxy === 'VG') ? exp.vg_range : exp.sr_range;
+      const u8 = vol[(frameIdx * exp.map_h + r) * exp.map_w + c];
+      if (u8 === 0) return 0.0;
+      return range[0] + ((u8 - 1) / 254.0) * (range[1] - range[0]);
+    }
+
+    function physicalToU8Threshold(proxy, threshVal) {
+      const exp = state.exp;
+      const range = (proxy === 'VG') ? exp.vg_range : exp.sr_range;
+      return Math.max(1, Math.min(255, Math.round(1 + ((threshVal - range[0]) / (range[1] - range[0])) * 254.0)));
+    }
+
+    // --- SEISMIC-STYLE ALONG-STRIKE (Y) AUTO-TRACKING ON 2D MAP VIEW ---
+
+    /**
+     * Sub-pixel quadratic peak finder along X at fixed strike row r
+     */
+    function snapXColAtRow(vol, frameOffset, r, centerCol, halfCorridorCols) {
+      const w = state.exp.map_w;
+      const cMin = Math.max(1, Math.floor(centerCol - halfCorridorCols));
+      const cMax = Math.min(w - 2, Math.ceil(centerCol + halfCorridorCols));
+      let bestC = Math.round(centerCol);
+      let maxV = -1;
+      const rowOffset = frameOffset + r * w;
+
+      for (let c = cMin; c <= cMax; c++) {
+        const v = vol[rowOffset + c];
+        if (v > maxV) {
+          maxV = v;
+          bestC = c;
+        }
+      }
+
+      const vMid = vol[rowOffset + bestC];
+      const vLeft = vol[rowOffset + bestC - 1];
+      const vRight = vol[rowOffset + bestC + 1];
+      const denom = 2 * (vLeft - 2 * vMid + vRight);
+      if (Math.abs(denom) > 1e-3) {
+        const delta = (vLeft - vRight) / denom;
+        if (Math.abs(delta) < 1.0) {
+          return { col: bestC + delta, u8: maxV };
+        }
+      }
+      return { col: bestC, u8: maxV };
+    }
+
+    /**
+     * 1-Click Map-View Strike Auto-Track:
+     * Given a click at (seedX_mm, seedY_mm) on the current 2D Map View frame,
+     * steers upward (+Y) and downward (-Y) along the SR/VG ridge crest until intensity < threshold T.
+     */
+    function runMapStrikeAutoTrack(seedX_mm, seedY_mm) {
+      const exp = state.exp;
+      if (!exp) return;
+      const f = getOrCreateActiveFault(seedX_mm, seedY_mm);
+      if (!f || f.locked) return;
+
+      const proxy = (state.viewMode === 'VG') ? 'VG' : 'SR';
+      const vol = (proxy === 'VG') ? state.vgVol : state.srVol;
+      const frameOffset = state.currentFrameIdx * exp.map_h * exp.map_w;
+      const threshU8 = physicalToU8Threshold(proxy, state.threshold);
+
+      const seedCol = (seedX_mm / exp.x_max_mm) * (exp.map_w - 1);
+      const seedRow = Math.round(((seedY_mm - exp.y_min_mm) / (exp.y_max_mm - exp.y_min_mm)) * (exp.map_h - 1));
+      const halfCorrCols = Math.max(2, Math.round((state.corridorMm / exp.x_max_mm) * exp.map_w));
+
+      // Initial snap with slightly wider search (2x corridor) so near-ridge clicks snap cleanly
+      const initSnap = snapXColAtRow(vol, frameOffset, Math.max(0, Math.min(exp.map_h - 1, seedRow)), seedCol, halfCorrCols * 2);
+      const pts = [];
+
+      // 1. Steer Downward (-Y, decreasing row index)
+      let curCol = initSnap.col;
+      let missCount = 0;
+      for (let r = seedRow; r >= 0; r--) {
+        const snap = snapXColAtRow(vol, frameOffset, r, curCol, halfCorrCols);
+        if (snap.u8 < threshU8) {
+          missCount++;
+          if (missCount >= 3 && r < seedRow - 1) break;
+        } else {
+          missCount = 0;
+          curCol = snap.col;
+          const x_mm = (curCol / (exp.map_w - 1)) * exp.x_max_mm;
+          const y_mm = exp.y_min_mm + (r / (exp.map_h - 1)) * (exp.y_max_mm - exp.y_min_mm);
+          pts.unshift([Number(x_mm.toFixed(1)), Number(y_mm.toFixed(1))]);
+        }
+      }
+
+      // 2. Steer Upward (+Y, increasing row index)
+      curCol = initSnap.col;
+      missCount = 0;
+      for (let r = seedRow + 1; r < exp.map_h; r++) {
+        const snap = snapXColAtRow(vol, frameOffset, r, curCol, halfCorrCols);
+        if (snap.u8 < threshU8) {
+          missCount++;
+          if (missCount >= 3 && r > seedRow + 1) break;
+        } else {
+          missCount = 0;
+          curCol = snap.col;
+          const x_mm = (curCol / (exp.map_w - 1)) * exp.x_max_mm;
+          const y_mm = exp.y_min_mm + (r / (exp.map_h - 1)) * (exp.y_max_mm - exp.y_min_mm);
+          pts.push([Number(x_mm.toFixed(1)), Number(y_mm.toFixed(1))]);
+        }
+      }
+
+      // Fallback if clicked on low-intensity spot: place local segment
+      if (pts.length < 2) {
+        const xSnap = (initSnap.col / (exp.map_w - 1)) * exp.x_max_mm;
+        pts.push([Number(xSnap.toFixed(1)), Number(Math.max(exp.y_min_mm, seedY_mm - 20).toFixed(1))]);
+        pts.push([Number(xSnap.toFixed(1)), Number(Math.min(exp.y_max_mm, seedY_mm + 20).toFixed(1))]);
+      }
+
+      const sampledPts = downsamplePolyline(pts, 24);
+      recordFaultKeyframeAtCurrentFrame(f, state.activeStage, sampledPts);
+      setStatus(`🎯 Auto-tracked ${f.id} (${state.activeStage.toUpperCase()}) at Photo Frame #${exp.photo_frames[state.currentFrameIdx]} (${sampledPts.length} strike nodes)!`);
+    }
+
+    /**
+     * Interpolates X(Y) coordinate along strike polyline at targetY.
+     */
+    function getInterpolatedX(pts, targetY) {
+      if (!pts || pts.length === 0) return 0;
+      if (pts.length === 1) return pts[0][0];
+      const sorted = [...pts].sort((a, b) => a[1] - b[1]);
+      if (targetY <= sorted[0][1]) {
+        const dy = sorted[1][1] - sorted[0][1];
+        const dx = sorted[1][0] - sorted[0][0];
+        const slope = (Math.abs(dy) > 1e-3) ? dx / dy : 0;
+        return sorted[0][0] + (targetY - sorted[0][1]) * slope;
+      }
+      if (targetY >= sorted[sorted.length - 1][1]) {
+        const n = sorted.length;
+        const dy = sorted[n - 1][1] - sorted[n - 2][1];
+        const dx = sorted[n - 1][0] - sorted[n - 2][0];
+        const slope = (Math.abs(dy) > 1e-3) ? dx / dy : 0;
+        return sorted[n - 1][0] + (targetY - sorted[n - 1][1]) * slope;
+      }
+      for (let i = 0; i < sorted.length - 1; i++) {
+        const pA = sorted[i];
+        const pB = sorted[i + 1];
+        if (targetY >= pA[1] && targetY <= pB[1]) {
+          const frac = (pB[1] > pA[1]) ? (targetY - pA[1]) / (pB[1] - pA[1]) : 0;
+          return pA[0] + frac * (pB[0] - pA[0]);
+        }
+      }
+      return sorted[sorted.length - 1][0];
+    }
+
+    /**
+     * Physical Peak-Detection Engine between Initial (Awal) and Final (Akhir) Frames:
+     * Does NOT just perform a geometric linear resize. Instead, across every intermediate frame t
+     * between t_onset and t_breach, searches for the actual physical ridge peak values (sub-pixel crest)
+     * within the guided structural corridor in the SR/VG field!
+     * 
+     * Extracts:
+     * 1. True physical active along-strike span [Y_min(t), Y_max(t)] where peak intensity >= threshold T.
+     * 2. Sub-pixel crest vertices [X_peak(y), y] locking directly onto the maximum strain-rate ridge.
+     * 3. Realistic, physics-grounded lateral propagation envelope for Plot A.
+     */
+    function detectPeaksBetweenOnsetAndBreach(fault) {
+      const exp = state.exp;
+      if (!exp || !fault || !fault.keyframes || fault.keyframes.length === 0) return null;
+
+      const kfOnset = fault.keyframes.find(k => k.stage === 'onset');
+      const kfBreach = fault.keyframes.find(k => k.stage === 'breach');
+
+      if (!kfOnset || !kfBreach) {
+        fault.lateral_envelope = null;
+        fault.interpolated_traces = null;
+        return null;
+      }
+
+      // Chronological ordering
+      const [k0, k1] = (kfOnset.active_frame <= kfBreach.active_frame) ? [kfOnset, kfBreach] : [kfBreach, kfOnset];
+      const t0 = k0.active_frame;
+      const t1 = k1.active_frame;
+      const eps0 = k0.strain_pct;
+      const eps1 = k1.strain_pct;
+
+      const totalFrames = Math.max(1, t1 - t0);
+      const envelope = [];
+      const peakTraceMap = {};
+
+      const proxy = (state.viewMode === 'VG') ? 'VG' : 'SR';
+      const vol = (proxy === 'VG') ? state.vgVol : state.srVol;
+      const threshU8 = physicalToU8Threshold(proxy, state.threshold);
+      const halfCorrCols = Math.max(3, Math.round((state.corridorMm / exp.x_max_mm) * exp.map_w));
+
+      // Bounding initial and final spans as anchors
+      const ys0 = k0.pts.map(p => p[1]);
+      const ys1 = k1.pts.map(p => p[1]);
+      const initialYMin = Math.min(...ys0);
+      const initialYMax = Math.max(...ys0);
+      const finalYMin = Math.min(...ys1);
+      const finalYMax = Math.max(...ys1);
+
+      for (let t = t0; t <= t1; t++) {
+        const frameOffset = t * exp.map_h * exp.map_w;
+        const frac = (t - t0) / totalFrames;
+
+        if (t === t0) {
+          envelope.push({
+            active_frame: t,
+            photo_frame: exp.photo_frames[t],
+            strain_pct: Number(exp.strains[t].toFixed(2)),
+            yMin: Number(initialYMin.toFixed(1)),
+            yMax: Number(initialYMax.toFixed(1)),
+            span: Number((initialYMax - initialYMin).toFixed(1)),
+            is_peak: true
+          });
+          peakTraceMap[t] = k0.pts;
+          continue;
+        }
+
+        if (t === t1) {
+          envelope.push({
+            active_frame: t,
+            photo_frame: exp.photo_frames[t],
+            strain_pct: Number(exp.strains[t].toFixed(2)),
+            yMin: Number(finalYMin.toFixed(1)),
+            yMax: Number(finalYMax.toFixed(1)),
+            span: Number((finalYMax - finalYMin).toFixed(1)),
+            is_peak: true
+          });
+          peakTraceMap[t] = k1.pts;
+          continue;
+        }
+
+        // --- Intermediate frame: DETECT ACTUAL PHYSICAL PEAKS ---
+        const detectedPts = [];
+        for (let r = 0; r < exp.map_h; r++) {
+          const yVal = exp.y_min_mm + (r / (exp.map_h - 1)) * (exp.y_max_mm - exp.y_min_mm);
+          const x0 = getInterpolatedX(k0.pts, yVal);
+          const x1 = getInterpolatedX(k1.pts, yVal);
+          const xGuide = (1.0 - frac) * x0 + frac * x1;
+          const colGuide = (xGuide / exp.x_max_mm) * (exp.map_w - 1);
+
+          // Find local sub-pixel peak along row r around colGuide
+          const snap = snapXColAtRow(vol, frameOffset, r, colGuide, halfCorrCols);
+          if (snap.u8 >= threshU8) {
+            const xPeak = (snap.col / (exp.map_w - 1)) * exp.x_max_mm;
+            detectedPts.push([Number(xPeak.toFixed(1)), Number(yVal.toFixed(1))]);
+          }
+        }
+
+        let curYMin, curYMax;
+        let finalFramePts = [];
+
+        if (detectedPts.length >= 3) {
+          const ys = detectedPts.map(p => p[1]);
+          curYMin = Math.min(...ys);
+          curYMax = Math.max(...ys);
+          finalFramePts = downsamplePolyline(detectedPts, Math.min(28, detectedPts.length));
+        } else {
+          // Low-activity fallback: smooth guide between anchors
+          const guideYMin = initialYMin + frac * (finalYMin - initialYMin);
+          const guideYMax = initialYMax + frac * (finalYMax - initialYMax);
+          curYMin = guideYMin;
+          curYMax = guideYMax;
+
+          const nNodes = 20;
+          for (let n = 0; n < nNodes; n++) {
+            const curY = curYMin + (n / (nNodes - 1)) * (curYMax - curYMin);
+            const x0 = getInterpolatedX(k0.pts, curY);
+            const x1 = getInterpolatedX(k1.pts, curY);
+            const curX = (1.0 - frac) * x0 + frac * x1;
+            finalFramePts.push([Number(curX.toFixed(1)), Number(curY.toFixed(1))]);
+          }
+        }
+
+        const curSpan = Math.max(1.0, curYMax - curYMin);
+
+        envelope.push({
+          active_frame: t,
+          photo_frame: exp.photo_frames[t],
+          strain_pct: Number(exp.strains[t].toFixed(2)),
+          yMin: Number(curYMin.toFixed(1)),
+          yMax: Number(curYMax.toFixed(1)),
+          span: Number(curSpan.toFixed(1)),
+          is_peak: detectedPts.length >= 3
+        });
+
+        peakTraceMap[t] = finalFramePts;
+      }
+
+      fault.lateral_envelope = envelope;
+      fault.interpolated_traces = peakTraceMap;
+
+      const dSec = totalFrames * 22.0;
+      const deltaSpanMm = Math.max(0.1, (finalYMax - finalYMin) - (initialYMax - initialYMin));
+      const vLatCmMin = (deltaSpanMm / 10.0) / (dSec / 60.0);
+      const vLatMms = deltaSpanMm / dSec;
+      const deltaEps = Math.max(0.01, eps1 - eps0);
+
+      return {
+        t0,
+        t1,
+        deltaEps,
+        deltaSpanMm,
+        vLatCmMin,
+        vLatMms,
+        envelope
+      };
+    }
+
+    // Alias for backwards compatibility
+    const interpolateBetweenOnsetAndBreach = detectPeaksBetweenOnsetAndBreach;
+
+    /**
+     * Dedicated 1-Click Strike Auto-Track for Initial (Awal) or Final (Akhir) Keyframe:
+     */
+    function runTwoPointStrikeAutoTrack(seedX_mm, seedY_mm, targetStage) {
+      const exp = state.exp;
+      if (!exp) return;
+      const f = getOrCreateActiveFault(seedX_mm, seedY_mm);
+      if (!f || f.locked) return;
+
+      const proxy = (state.viewMode === 'VG') ? 'VG' : 'SR';
+      const vol = (proxy === 'VG') ? state.vgVol : state.srVol;
+      const frameOffset = state.currentFrameIdx * exp.map_h * exp.map_w;
+      const threshU8 = physicalToU8Threshold(proxy, state.threshold);
+
+      const seedCol = (seedX_mm / exp.x_max_mm) * (exp.map_w - 1);
+      const seedRow = Math.round(((seedY_mm - exp.y_min_mm) / (exp.y_max_mm - exp.y_min_mm)) * (exp.map_h - 1));
+      const halfCorrCols = Math.max(2, Math.round((state.corridorMm / exp.x_max_mm) * exp.map_w));
+
+      const initSnap = snapXColAtRow(vol, frameOffset, Math.max(0, Math.min(exp.map_h - 1, seedRow)), seedCol, halfCorrCols * 2);
+      const pts = [];
+
+      // 1. Steer Downward (-Y)
+      let curCol = initSnap.col;
+      let missCount = 0;
+      for (let r = seedRow; r >= 0; r--) {
+        const snap = snapXColAtRow(vol, frameOffset, r, curCol, halfCorrCols);
+        if (snap.u8 < threshU8) {
+          missCount++;
+          if (missCount >= 3 && r < seedRow - 1) break;
+        } else {
+          missCount = 0;
+          curCol = snap.col;
+          const x_mm = (curCol / (exp.map_w - 1)) * exp.x_max_mm;
+          const y_mm = exp.y_min_mm + (r / (exp.map_h - 1)) * (exp.y_max_mm - exp.y_min_mm);
+          pts.unshift([Number(x_mm.toFixed(1)), Number(y_mm.toFixed(1))]);
+        }
+      }
+
+      // 2. Steer Upward (+Y)
+      curCol = initSnap.col;
+      missCount = 0;
+      for (let r = seedRow + 1; r < exp.map_h; r++) {
+        const snap = snapXColAtRow(vol, frameOffset, r, curCol, halfCorrCols);
+        if (snap.u8 < threshU8) {
+          missCount++;
+          if (missCount >= 3 && r > seedRow + 1) break;
+        } else {
+          missCount = 0;
+          curCol = snap.col;
+          const x_mm = (curCol / (exp.map_w - 1)) * exp.x_max_mm;
+          const y_mm = exp.y_min_mm + (r / (exp.map_h - 1)) * (exp.y_max_mm - exp.y_min_mm);
+          pts.push([Number(x_mm.toFixed(1)), Number(y_mm.toFixed(1))]);
+        }
+      }
+
+      // Fallback
+      if (pts.length < 2) {
+        const xSnap = (initSnap.col / (exp.map_w - 1)) * exp.x_max_mm;
+        pts.push([Number(xSnap.toFixed(1)), Number(Math.max(exp.y_min_mm, seedY_mm - 20).toFixed(1))]);
+        pts.push([Number(xSnap.toFixed(1)), Number(Math.min(exp.y_max_mm, seedY_mm + 20).toFixed(1))]);
+      }
+
+      const sampledPts = downsamplePolyline(pts, 24);
+
+      // Cleanly replace any existing keyframe of this target stage
+      f.keyframes = (f.keyframes || []).filter(k => k.stage !== targetStage);
+
+      const photoFrame = exp.photo_frames[state.currentFrameIdx];
+      const strainPct = exp.strains[state.currentFrameIdx];
+      const newKf = {
+        stage: targetStage,
+        label: (targetStage === 'onset') ? `Deteksi Awal / Onset (Fr ${photoFrame})` : `Deteksi Final / Breach (Fr ${photoFrame})`,
+        active_frame: state.currentFrameIdx,
+        photo_frame: photoFrame,
+        strain_pct: Number(strainPct.toFixed(2)),
+        pts: sampledPts
+      };
+      f.keyframes.push(newKf);
+      f.keyframes.sort((a, b) => a.active_frame - b.active_frame);
+
+      // Update corridor from points
+      const xs = sampledPts.map(p => p[0]);
+      const meanX = xs.reduce((a, b) => a + b, 0) / xs.length;
+      f.corridor = [Math.max(5, Math.round(meanX - 25)), Math.min(Math.round(exp.x_max_mm - 5), Math.round(meanX + 25))];
+
+      // Auto-interpolate between Awal & Final
+      const interp = interpolateBetweenOnsetAndBreach(f);
+
+      const ys = sampledPts.map(p => p[1]);
+      const spanMm = (Math.max(...ys) - Math.min(...ys)).toFixed(1);
+
+      if (interp) {
+        setStatus(`✨ Sukses! ${f.id} berhasil diinterpolasi dari Awal (Fr #${exp.photo_frames[interp.t0]}) ke Final (Fr #${exp.photo_frames[interp.t1]})! Δε = ${interp.deltaEps.toFixed(2)}%, V_lat = ${interp.vLatCmMin.toFixed(1)} cm/min.`);
+      } else if (targetStage === 'onset') {
+        setStatus(`⭐ [Deteksi Awal] Tercatat untuk ${f.id} pada Fr #${photoFrame} (ε=${strainPct.toFixed(2)}% | Span: ${spanMm} mm). Sekarang pilih frame sesar matang lalu klik [🏁 Deteksi Final]!`);
+      } else {
+        setStatus(`🏁 [Deteksi Final] Tercatat untuk ${f.id} pada Fr #${photoFrame} (ε=${strainPct.toFixed(2)}% | Span: ${spanMm} mm). Sekarang pilih frame inisiasi lalu klik [⭐ Deteksi Awal]!`);
+      }
+
+      refreshAllUI();
+    }
+
+    /**
+     * 2-Point Guided Strike Snap on 2D Map View (Dijkstra Router along Y)
+     */
+    function runMapGuidedDijkstraSnap(ptA, ptB) {
+      const exp = state.exp;
+      if (!exp) return;
+      const f = getOrCreateActiveFault(ptA.x_mm, ptA.y_mm);
+      if (!f || f.locked) return;
+
+      const [p1, p2] = (ptA.y_mm <= ptB.y_mm) ? [ptA, ptB] : [ptB, ptA];
+      const r1 = Math.max(0, Math.min(exp.map_h - 1, Math.round(((p1.y_mm - exp.y_min_mm) / (exp.y_max_mm - exp.y_min_mm)) * (exp.map_h - 1))));
+      const r2 = Math.max(0, Math.min(exp.map_h - 1, Math.round(((p2.y_mm - exp.y_min_mm) / (exp.y_max_mm - exp.y_min_mm)) * (exp.map_h - 1))));
+      const c1 = Math.max(1, Math.min(exp.map_w - 2, Math.round((p1.x_mm / exp.x_max_mm) * (exp.map_w - 1))));
+      const c2 = Math.max(1, Math.min(exp.map_w - 2, Math.round((p2.x_mm / exp.x_max_mm) * (exp.map_w - 1))));
+
+      if (r2 <= r1) {
+        recordFaultKeyframeAtCurrentFrame(f, state.activeStage, [[Number(p1.x_mm.toFixed(1)), Number(p1.y_mm.toFixed(1))], [Number(p2.x_mm.toFixed(1)), Number(p2.y_mm.toFixed(1))]]);
+        return;
+      }
+
+      const proxy = (state.viewMode === 'VG') ? 'VG' : 'SR';
+      const vol = (proxy === 'VG') ? state.vgVol : state.srVol;
+      const frameOffset = state.currentFrameIdx * exp.map_h * exp.map_w;
+      const nRows = r2 - r1 + 1;
+      const maxStepCols = Math.max(3, Math.round((state.corridorMm / exp.x_max_mm) * exp.map_w));
+
+      const dpCost = Array.from({ length: nRows }, () => new Float32Array(exp.map_w).fill(Infinity));
+      const dpPrev = Array.from({ length: nRows }, () => new Int16Array(exp.map_w).fill(-1));
+      dpCost[0][c1] = 0;
+
+      for (let i = 0; i < nRows - 1; i++) {
+        const rNext = r1 + i + 1;
+        const rowOffset = frameOffset + rNext * exp.map_w;
+        for (let c = 1; c < exp.map_w - 1; c++) {
+          const baseCost = dpCost[i][c];
+          if (baseCost === Infinity) continue;
+          const cnMin = Math.max(1, c - maxStepCols);
+          const cnMax = Math.min(exp.map_w - 2, c + maxStepCols);
+          for (let cn = cnMin; cn <= cnMax; cn++) {
+            const u8 = vol[rowOffset + cn];
+            const nodeCost = 1.0 / ((u8 / 255.0) + 0.04);
+            const jumpCost = 0.35 * Math.abs(cn - c);
+            const cand = baseCost + nodeCost + jumpCost;
+            if (cand < dpCost[i + 1][cn]) {
+              dpCost[i + 1][cn] = cand;
+              dpPrev[i + 1][cn] = c;
+            }
+          }
+        }
+      }
+
+      let curC = c2;
+      if (dpCost[nRows - 1][curC] === Infinity) {
+        let best = Infinity;
+        for (let c = 1; c < exp.map_w - 1; c++) {
+          if (dpCost[nRows - 1][c] < best) { best = dpCost[nRows - 1][c]; curC = c; }
+        }
+      }
+
+      const pts = [];
+      for (let i = nRows - 1; i >= 0; i--) {
+        const r = r1 + i;
+        const x_mm = (curC / (exp.map_w - 1)) * exp.x_max_mm;
+        const y_mm = exp.y_min_mm + (r / (exp.map_h - 1)) * (exp.y_max_mm - exp.y_min_mm);
+        pts.unshift([Number(x_mm.toFixed(1)), Number(y_mm.toFixed(1))]);
+        curC = dpPrev[i][curC];
+        if (curC < 0 && i > 0) break;
+      }
+
+      const sampledPts = downsamplePolyline(pts, 24);
+      recordFaultKeyframeAtCurrentFrame(f, state.activeStage, sampledPts);
+      setStatus(`⚡ 2-Point Dijkstra Strike Snap completed for ${f.id} (${state.activeStage.toUpperCase()})!`);
+    }
+
+    function downsamplePolyline(pts, maxPts) {
+      if (pts.length <= maxPts) return pts;
+      const out = [];
+      const step = (pts.length - 1) / (maxPts - 1);
+      for (let i = 0; i < maxPts; i++) {
+        out.push(pts[Math.round(i * step)]);
+      }
+      return out;
+    }
+
+    /**
+     * Progressive Step-by-Step Fault Propagation Detection to Furthest Edges:
+     * Takes the active fault's prior keyframe trace (continuity anchor) or current pick,
+     * snaps each strike row to the current frame's SR/VG ridge crest within corridor,
+     * and extends outward row-by-row upward (+Y) and downward (-Y) to the model boundary.
+     */
+    function detectToFurthestEdges(targetFrameIdx, opts = {}) {
+      const exp = state.exp;
+      if (!exp) return;
+      const frameIdx = (targetFrameIdx !== undefined) ? targetFrameIdx : state.currentFrameIdx;
+      const actF = getOrCreateActiveFault(exp.x_max_mm * 0.5, (exp.y_max_mm + exp.y_min_mm) * 0.5);
+      if (!actF || actF.locked) return;
+
+      const proxy = (state.viewMode === 'VG') ? 'VG' : 'SR';
+      const vol = (proxy === 'VG') ? state.vgVol : state.srVol;
+      const fOff = frameIdx * exp.map_h * exp.map_w;
+      const threshU8 = physicalToU8Threshold(proxy, state.threshold);
+      const halfCorrCols = Math.max(3, Math.round((state.corridorMm / exp.x_max_mm) * exp.map_w));
+
+      // 1. Identify geometric reference trace:
+      // Priority A: Current frame's existing keyframe if any
+      // Priority B: Closest prior keyframe (t < frameIdx)
+      // Priority C: Any existing keyframe of active fault
+      let refPts = null;
+      const curKf = (actF.keyframes || []).find(k => k.active_frame === frameIdx);
+      const priorKfs = (actF.keyframes || []).filter(k => k.active_frame < frameIdx).sort((a, b) => a.active_frame - b.active_frame);
+      const prevKf = priorKfs.length > 0 ? priorKfs[priorKfs.length - 1] : null;
+
+      if (curKf && curKf.pts && curKf.pts.length >= 2) {
+        refPts = curKf.pts;
+      } else if (prevKf && prevKf.pts && prevKf.pts.length >= 2) {
+        refPts = prevKf.pts;
+      } else if (actF.keyframes && actF.keyframes.length > 0 && actF.keyframes[0].pts) {
+        refPts = actF.keyframes[0].pts;
+      }
+
+      const detectedRowMap = new Map(); // row -> { r, col, u8, x_mm, y_mm }
+
+      if (refPts && refPts.length >= 2) {
+        // Convert reference points into sorted row indices
+        const refRows = [];
+        refPts.forEach(pt => {
+          const r = Math.max(0, Math.min(exp.map_h - 1, Math.round(((pt[1] - exp.y_min_mm) / (exp.y_max_mm - exp.y_min_mm)) * (exp.map_h - 1))));
+          const c = (pt[0] / exp.x_max_mm) * (exp.map_w - 1);
+          refRows.push({ r, c });
+        });
+        refRows.sort((a, b) => a.r - b.r);
+
+        const minRefR = refRows[0].r;
+        const maxRefR = refRows[refRows.length - 1].r;
+
+        function getRefCol(r) {
+          if (r <= refRows[0].r) return refRows[0].c;
+          if (r >= refRows[refRows.length - 1].r) return refRows[refRows.length - 1].c;
+          for (let i = 0; i < refRows.length - 1; i++) {
+            if (r >= refRows[i].r && r <= refRows[i + 1].r) {
+              const span = Math.max(1, refRows[i + 1].r - refRows[i].r);
+              const t = (r - refRows[i].r) / span;
+              return refRows[i].c + t * (refRows[i + 1].c - refRows[i].c);
+            }
+          }
+          return refRows[0].c;
+        }
+
+        // A. Trace within reference span rows [minRefR, maxRefR]
+        for (let r = minRefR; r <= maxRefR; r++) {
+          const refC = getRefCol(r);
+          const snap = snapXColAtRow(vol, fOff, r, refC, halfCorrCols);
+          const x_mm = (snap.col / (exp.map_w - 1)) * exp.x_max_mm;
+          const y_mm = exp.y_min_mm + (r / (exp.map_h - 1)) * (exp.y_max_mm - exp.y_min_mm);
+          detectedRowMap.set(r, { r, col: snap.col, u8: snap.u8, x_mm, y_mm });
+        }
+
+        // B. Extend upward to furthest edge (+Y, towards row exp.map_h - 1)
+        let lastCol = detectedRowMap.get(maxRefR).col;
+        let miss = 0;
+        for (let r = maxRefR + 1; r < exp.map_h; r++) {
+          const snap = snapXColAtRow(vol, fOff, r, lastCol, halfCorrCols);
+          if (snap.u8 >= threshU8 * 0.70) {
+            lastCol = snap.col;
+            miss = 0;
+            const x_mm = (snap.col / (exp.map_w - 1)) * exp.x_max_mm;
+            const y_mm = exp.y_min_mm + (r / (exp.map_h - 1)) * (exp.y_max_mm - exp.y_min_mm);
+            detectedRowMap.set(r, { r, col: snap.col, u8: snap.u8, x_mm, y_mm });
+          } else {
+            miss++;
+            if (miss > 5) break; // bridge small weak spots (up to 21 mm)
+          }
+        }
+
+        // C. Extend downward to furthest edge (-Y, towards row 0)
+        lastCol = detectedRowMap.get(minRefR).col;
+        miss = 0;
+        for (let r = minRefR - 1; r >= 0; r--) {
+          const snap = snapXColAtRow(vol, fOff, r, lastCol, halfCorrCols);
+          if (snap.u8 >= threshU8 * 0.70) {
+            lastCol = snap.col;
+            miss = 0;
+            const x_mm = (snap.col / (exp.map_w - 1)) * exp.x_max_mm;
+            const y_mm = exp.y_min_mm + (r / (exp.map_h - 1)) * (exp.y_max_mm - exp.y_min_mm);
+            detectedRowMap.set(r, { r, col: snap.col, u8: snap.u8, x_mm, y_mm });
+          } else {
+            miss++;
+            if (miss > 5) break;
+          }
+        }
+      } else {
+        // Fallback: search across all rows within fault corridor
+        const corr = actF.corridor || [exp.x_max_mm * 0.4, exp.x_max_mm * 0.6];
+        const cMid = ((corr[0] + corr[1]) / 2.0 / exp.x_max_mm) * (exp.map_w - 1);
+        const corrWCols = Math.round(((corr[1] - corr[0]) / 2.0 / exp.x_max_mm) * exp.map_w);
+
+        for (let r = 0; r < exp.map_h; r++) {
+          const snap = snapXColAtRow(vol, fOff, r, cMid, corrWCols);
+          if (snap.u8 >= threshU8 * 0.75) {
+            const x_mm = (snap.col / (exp.map_w - 1)) * exp.x_max_mm;
+            const y_mm = exp.y_min_mm + (r / (exp.map_h - 1)) * (exp.y_max_mm - exp.y_min_mm);
+            detectedRowMap.set(r, { r, col: snap.col, u8: snap.u8, x_mm, y_mm });
+          }
+        }
+      }
+
+      const sortedRows = Array.from(detectedRowMap.keys()).sort((a, b) => a - b);
+      if (sortedRows.length < 2) {
+        setStatus(`⚠️ Tidak terdeteksi jejak ridge di atas threshold T=${state.threshold} pada frame ini.`);
+        return;
+      }
+
+      const fullPts = sortedRows.map(r => {
+        const item = detectedRowMap.get(r);
+        return [Number(item.x_mm.toFixed(1)), Number(item.y_mm.toFixed(1))];
+      });
+
+      const sampledPts = downsamplePolyline(fullPts, 28);
+      const yMin = sampledPts[0][1];
+      const yMax = sampledPts[sampledPts.length - 1][1];
+      const spanMm = yMax - yMin;
+      const isBreach = (spanMm >= (exp.y_max_mm - exp.y_min_mm) * 0.78);
+      const stage = isBreach ? 'breach' : ((actF.keyframes && actF.keyframes.length > 0) ? 'growth' : 'onset');
+
+      recordFaultKeyframeAtCurrentFrame(actF, stage, sampledPts);
+
+      const prevPf = prevKf ? prevKf.photo_frame : null;
+      const prevSpan = (prevKf && prevKf.pts && prevKf.pts.length >= 2)
+        ? (Math.max(...prevKf.pts.map(p => p[1])) - Math.min(...prevKf.pts.map(p => p[1])))
+        : null;
+      const growthText = (prevSpan !== null)
+        ? ` (+${(spanMm - prevSpan).toFixed(1)} mm perambatan dari Fr #${prevPf})`
+        : '';
+
+      setStatus(`🎯 ${actF.id} terdeteksi sampai tepi terjauh! Y: ${yMin.toFixed(1)}–${yMax.toFixed(1)} mm | Span: ${spanMm.toFixed(1)} mm${growthText} [${stage.toUpperCase()}]`);
+      refreshAllUI();
+    }
+
+    /**
+     * Backward Retro-Tracking Engine (Melacak Mundur):
+     * Given the mature fully formed fault geometry on breachFrameIdx (input by user with 1-Click Strike Auto-Track),
+     * retro-tracks frame-by-frame backward in time along each strike row to determine:
+     * 1. The exact Nucleation Inception Frame (t_onset) and initial embryonic span [yMin, yMax].
+     * 2. The continuous evolution of strike span [yMin(t), yMax(t)] for every frame t.
+     * 3. The Along-Strike Y versus Cumulative Strain ε envelope curve (Figure 3 in paper).
+     * 4. Populates Onset (★), Growth (◆), and Breach (■) keyframes, plus lateral_envelope.
+     */
+    function runBackwardRetroTracking(targetFault, breachFrameIdx) {
+      const exp = state.exp;
+      if (!exp) return;
+      const actF = targetFault || getOrCreateActiveFault();
+      if (!actF || actF.locked) return;
+
+      const t_breach = (breachFrameIdx !== undefined) ? breachFrameIdx : state.currentFrameIdx;
+      const proxy = (state.viewMode === 'VG') ? 'VG' : 'SR';
+      const vol = (proxy === 'VG') ? state.vgVol : state.srVol;
+      const threshU8 = physicalToU8Threshold(proxy, state.threshold);
+      const halfCorrCols = Math.max(3, Math.round((state.corridorMm / exp.x_max_mm) * exp.map_w));
+
+      // 1. Get mature fault geometry on t_breach
+      let curKf = (actF.keyframes || []).find(k => k.active_frame === t_breach);
+      // If user hasn't created a pick on current frame yet, auto-detect mature trace first
+      if (!curKf || !curKf.pts || curKf.pts.length < 2) {
+        detectToFurthestEdges(t_breach);
+        curKf = (actF.keyframes || []).find(k => k.active_frame === t_breach);
+      }
+      if (!curKf || !curKf.pts || curKf.pts.length < 2) {
+        setStatus(`⚠️ Tidak ada jejak sesar matang pada frame ini untuk dilacak mundur. Klik pita sesar dengan 1-Click Auto Track terlebih dahulu.`);
+        return;
+      }
+
+      // Map mature trace to per-row column coordinates
+      const refRows = curKf.pts.map(pt => {
+        const r = Math.max(0, Math.min(exp.map_h - 1, Math.round(((pt[1] - exp.y_min_mm) / (exp.y_max_mm - exp.y_min_mm)) * (exp.map_h - 1))));
+        const c = (pt[0] / exp.x_max_mm) * (exp.map_w - 1);
+        return { r, c };
+      }).sort((a, b) => a.r - b.r);
+
+      const matureColByRow = new Float32Array(exp.map_h);
+      for (let r = 0; r < exp.map_h; r++) {
+        if (r <= refRows[0].r) matureColByRow[r] = refRows[0].c;
+        else if (r >= refRows[refRows.length - 1].r) matureColByRow[r] = refRows[refRows.length - 1].c;
+        else {
+          for (let i = 0; i < refRows.length - 1; i++) {
+            if (r >= refRows[i].r && r <= refRows[i + 1].r) {
+              const span = Math.max(1, refRows[i + 1].r - refRows[i].r);
+              const t = (r - refRows[i].r) / span;
+              matureColByRow[r] = refRows[i].c + t * (refRows[i + 1].c - refRows[i].c);
+              break;
+            }
+          }
+        }
+      }
+
+      // 2. Trace backward frame-by-frame for each strike row
+      const maxBackwardFrames = 50; // up to ~50 frames (~1.1 m / ~11% strain)
+      const earliestT = Math.max(0, t_breach - maxBackwardFrames);
+      const rowOnset = new Int16Array(exp.map_h).fill(-1);
+      const rowColsByT = Array.from({ length: exp.map_h }, () => new Map());
+
+      for (let r = 0; r < exp.map_h; r++) {
+        let curCol = matureColByRow[r];
+        let earliestActiveT = t_breach;
+
+        for (let t = t_breach; t >= earliestT; t--) {
+          const fOff = t * exp.map_h * exp.map_w;
+          const snap = snapXColAtRow(vol, fOff, r, curCol, halfCorrCols);
+          curCol = snap.col;
+          rowColsByT[r].set(t, snap.col);
+
+          if (snap.u8 >= threshU8) {
+            earliestActiveT = t;
+          } else {
+            // Confirm drop with prior frame to avoid single-frame fluctuations
+            let dropConfirmed = true;
+            if (t > earliestT) {
+              const snapPrev = snapXColAtRow(vol, (t - 1) * exp.map_h * exp.map_w, r, curCol, halfCorrCols);
+              if (snapPrev.u8 >= threshU8) dropConfirmed = false;
+            }
+            if (dropConfirmed) break;
+          }
+        }
+        rowOnset[r] = earliestActiveT;
+      }
+
+      // 3. Robust cluster filtering: find true nucleation frame
+      // (Requires at least 3 contiguous active rows to eliminate single-pixel sensor noise)
+      let t_onset = t_breach;
+      for (let t = earliestT; t <= t_breach; t++) {
+        let maxRun = 0, currentRun = 0;
+        for (let r = 0; r < exp.map_h; r++) {
+          if (rowOnset[r] <= t) {
+            currentRun++;
+            if (currentRun > maxRun) maxRun = currentRun;
+          } else {
+            currentRun = 0;
+          }
+        }
+        if (maxRun >= 3) {
+          t_onset = t;
+          break;
+        }
+      }
+
+      // 4. Construct continuous spatiotemporal lateral propagation envelope
+      const envelope = [];
+      const getTraceAt = (t) => {
+        const pts = [];
+        for (let r = 0; r < exp.map_h; r++) {
+          if (rowOnset[r] <= t && rowColsByT[r].has(t)) {
+            const col = rowColsByT[r].get(t);
+            const x = (col / (exp.map_w - 1)) * exp.x_max_mm;
+            const y = exp.y_min_mm + (r / (exp.map_h - 1)) * (exp.y_max_mm - exp.y_min_mm);
+            pts.push([Number(x.toFixed(1)), Number(y.toFixed(1))]);
+          }
+        }
+        return downsamplePolyline(pts, 26);
+      };
+
+      for (let t = t_onset; t <= t_breach; t++) {
+        const actRows = [];
+        for (let r = 0; r < exp.map_h; r++) {
+          if (rowOnset[r] <= t) actRows.push(r);
+        }
+        if (actRows.length > 0) {
+          const minR = Math.min(...actRows);
+          const maxR = Math.max(...actRows);
+          const yMin = exp.y_min_mm + (minR / (exp.map_h - 1)) * (exp.y_max_mm - exp.y_min_mm);
+          const yMax = exp.y_min_mm + (maxR / (exp.map_h - 1)) * (exp.y_max_mm - exp.y_min_mm);
+          const span = yMax - yMin;
+          envelope.push({
+            active_frame: t,
+            photo_frame: exp.photo_frames[t],
+            strain_pct: Number(exp.strains[t].toFixed(2)),
+            rows_count: actRows.length,
+            yMin: Number(yMin.toFixed(1)),
+            yMax: Number(yMax.toFixed(1)),
+            span: Number(span.toFixed(1))
+          });
+        }
+      }
+
+      // 5. Populate structured Keyframes: Onset (★), Growth (◆), Breach (■)
+      actF.keyframes = [];
+
+      // A. Onset Keyframe (★)
+      actF.keyframes.push({
+        stage: 'onset',
+        label: `Nucleation Onset (Frame ${exp.photo_frames[t_onset]})`,
+        active_frame: t_onset,
+        photo_frame: exp.photo_frames[t_onset],
+        strain_pct: Number(exp.strains[t_onset].toFixed(2)),
+        pts: getTraceAt(t_onset)
+      });
+
+      // B. Intermediate Growth Keyframes (◆)
+      const frameDiff = t_breach - t_onset;
+      if (frameDiff >= 3) {
+        const step1 = Math.round(t_onset + frameDiff * 0.40);
+        actF.keyframes.push({
+          stage: 'growth',
+          label: `Segment Growth 1 (Frame ${exp.photo_frames[step1]})`,
+          active_frame: step1,
+          photo_frame: exp.photo_frames[step1],
+          strain_pct: Number(exp.strains[step1].toFixed(2)),
+          pts: getTraceAt(step1)
+        });
+        if (frameDiff >= 6) {
+          const step2 = Math.round(t_onset + frameDiff * 0.75);
+          actF.keyframes.push({
+            stage: 'growth',
+            label: `Segment Growth 2 (Frame ${exp.photo_frames[step2]})`,
+            active_frame: step2,
+            photo_frame: exp.photo_frames[step2],
+            strain_pct: Number(exp.strains[step2].toFixed(2)),
+            pts: getTraceAt(step2)
+          });
+        }
+      }
+
+      // C. Breach Keyframe (■)
+      actF.keyframes.push({
+        stage: 'breach',
+        label: `Full Breach (Frame ${exp.photo_frames[t_breach]})`,
+        active_frame: t_breach,
+        photo_frame: exp.photo_frames[t_breach],
+        strain_pct: Number(exp.strains[t_breach].toFixed(2)),
+        pts: getTraceAt(t_breach)
+      });
+
+      actF.keyframes.sort((a, b) => a.active_frame - b.active_frame);
+      actF.lateral_envelope = envelope;
+
+      // Kinematics Calculation
+      const dSec = Math.max(1, t_breach - t_onset) * 22.0;
+      const vLatCmMin = (347.0 / 10.0) / (dSec / 60.0);
+      const deltaEps = exp.strains[t_breach] - exp.strains[t_onset];
+
+      setStatus(`⏪ Lacak Mundur Sukses! ${actF.id}: Onset di Fr #${exp.photo_frames[t_onset]} (${exp.strains[t_onset].toFixed(2)}%) ➔ Breach di Fr #${exp.photo_frames[t_breach]} (${exp.strains[t_breach].toFixed(2)}%). V_lat = ${vLatCmMin.toFixed(1)} cm/min | Δε = ${deltaEps.toFixed(2)}%`);
+      refreshAllUI();
+    }
+
+    function recordFaultKeyframeAtCurrentFrame(fault, stage, pts) {
+      const exp = state.exp;
+      const actIdx = state.currentFrameIdx;
+      const photoFrame = exp.photo_frames[actIdx];
+      const strainPct = exp.strains[actIdx];
+
+      const stageLabels = {
+        onset: `Nucleation Onset (Frame ${photoFrame})`,
+        growth: `Segment Growth (Frame ${photoFrame})`,
+        breach: `Full Breach / Peak (Frame ${photoFrame})`
+      };
+
+      // Update corridor estimate from picked points
+      if (pts && pts.length > 0) {
+        const xs = pts.map(p => p[0]);
+        const meanX = xs.reduce((a, b) => a + b, 0) / xs.length;
+        fault.corridor = [Math.max(5, Math.round(meanX - 25)), Math.min(448, Math.round(meanX + 25))];
+      }
+
+      // Check if a keyframe at this active_frame or same singleton stage (onset/breach) exists
+      let existingIdx = fault.keyframes.findIndex(k => k.active_frame === actIdx);
+      if (existingIdx === -1 && (stage === 'onset' || stage === 'breach')) {
+        existingIdx = fault.keyframes.findIndex(k => k.stage === stage);
+      }
+
+      const newKf = {
+        stage,
+        label: stageLabels[stage] || `Frame ${photoFrame}`,
+        active_frame: actIdx,
+        photo_frame: photoFrame,
+        strain_pct: Number(strainPct.toFixed(2)),
+        pts
+      };
+
+      if (existingIdx >= 0) {
+        fault.keyframes[existingIdx] = newKf;
+      } else {
+        fault.keyframes.push(newKf);
+      }
+      fault.keyframes.sort((a, b) => a.active_frame - b.active_frame);
+      interpolateBetweenOnsetAndBreach(fault);
+      refreshAllUI();
+    }
+
+    // --- AUTO-SCAN TIMING ACROSS FRAMES WITHIN FAULT CORRIDOR ---
+    function autoScanFaultTiming() {
+      const exp = state.exp;
+      const f = getActiveFault();
+      if (!exp || !f || f.locked) return;
+
+      const corr = f.corridor || [200, 260];
+      const cMin = Math.max(1, Math.round((corr[0] / exp.x_max_mm) * (exp.map_w - 1)));
+      const cMax = Math.min(exp.map_w - 2, Math.round((corr[1] / exp.x_max_mm) * (exp.map_w - 1)));
+      const threshU8 = physicalToU8Threshold('SR', state.threshold);
+
+      let onsetAct = null;
+      let breachAct = null;
+      let maxActiveRows = -1;
+
+      const searchStart = Math.max(0, state.currentFrameIdx - 45);
+      const searchEnd = Math.min(exp.active_frames - 1, state.currentFrameIdx + 45);
+
+      for (let t = searchStart; t <= searchEnd; t++) {
+        const fOff = t * exp.map_h * exp.map_w;
+        let activeRows = 0;
+        for (let r = 0; r < exp.map_h; r++) {
+          let rowMax = 0;
+          const rOff = fOff + r * exp.map_w;
+          for (let c = cMin; c <= cMax; c++) {
+            if (state.srVol[rOff + c] > rowMax) rowMax = state.srVol[rOff + c];
+          }
+          if (rowMax >= threshU8) activeRows++;
+        }
+        if (onsetAct === null && activeRows >= 5) {
+          onsetAct = t;
+        }
+        if (activeRows > maxActiveRows && activeRows >= 8) {
+          maxActiveRows = activeRows;
+          breachAct = t;
+        }
+        if (onsetAct !== null && activeRows >= exp.map_h * 0.82) {
+          breachAct = t;
+          break;
+        }
+      }
+
+      if (onsetAct !== null && breachAct !== null) {
+        const traceAt = (actFrame) => {
+          const pts = [];
+          const fOff = actFrame * exp.map_h * exp.map_w;
+          for (let r = 0; r < exp.map_h; r += 3) {
+            const rOff = fOff + r * exp.map_w;
+            let bestC = cMin, maxV = 0;
+            for (let c = cMin; c <= cMax; c++) {
+              if (state.srVol[rOff + c] > maxV) { maxV = state.srVol[rOff + c]; bestC = c; }
+            }
+            if (maxV >= threshU8) {
+              const x_mm = (bestC / (exp.map_w - 1)) * exp.x_max_mm;
+              const y_mm = exp.y_min_mm + (r / (exp.map_h - 1)) * (exp.y_max_mm - exp.y_min_mm);
+              pts.push([Number(x_mm.toFixed(1)), Number(y_mm.toFixed(1))]);
+            }
+          }
+          return pts;
+        };
+
+        f.keyframes = [
+          {
+            stage: 'onset',
+            label: `Nucleation Onset (Frame ${exp.photo_frames[onsetAct]})`,
+            active_frame: onsetAct,
+            photo_frame: exp.photo_frames[onsetAct],
+            strain_pct: Number(exp.strains[onsetAct].toFixed(2)),
+            pts: traceAt(onsetAct)
+          },
+          {
+            stage: 'breach',
+            label: `Full Breach (Frame ${exp.photo_frames[breachAct]})`,
+            active_frame: breachAct,
+            photo_frame: exp.photo_frames[breachAct],
+            strain_pct: Number(exp.strains[breachAct].toFixed(2)),
+            pts: traceAt(breachAct)
+          }
+        ];
+        state.currentFrameIdx = onsetAct;
+        refreshAllUI();
+        setStatus(`🚀 Auto-scanned ${f.id}: Onset = Frame #${exp.photo_frames[onsetAct]} → Breach = Frame #${exp.photo_frames[breachAct]}`);
+      } else {
+        setStatus(`⚠️ No clear ridge above T=${state.threshold} found in corridor [${corr[0]}, ${corr[1]}] mm.`);
+      }
+    }
+
+    // --- 2D MAP VIEW COORDINATE TRANSFORMS ---
+    function getMapPlotRects() {
+      const m = { left: 54, right: 24, top: 44, bottom: 38 };
+      const totalW = mapCanvas.width - m.left - m.right;
+      const totalH = mapCanvas.height - m.top - m.bottom;
+
+      if (state.viewMode === 'DUAL') {
+        const gap = 36;
+        const singleW = (totalW - gap) / 2;
+        return [
+          { proxy: 'SR', title: 'Map View (A): Shortening Rate (SR: e_xx = -du/dx)', x: m.left, y: m.top, w: singleW, h: totalH },
+          { proxy: 'VG', title: 'Map View (B): Velocity Gradient (VG: |d|V|/dx|)', x: m.left + singleW + gap, y: m.top, w: singleW, h: totalH }
+        ];
+      } else {
+        const proxy = state.viewMode;
+        const title = (proxy === 'VG')
+          ? 'View M (2D Map View): Spatial Velocity Magnitude Gradient (VG: |d|V|/dx|)'
+          : 'View M (2D Map View): Longitudinal Shortening Rate (SR: e_xx = -du/dx)';
+        return [{ proxy, title, x: m.left, y: m.top, w: totalW, h: totalH }];
+      }
+    }
+
+    function mapWorldToScreen(x_mm, y_mm, rect) {
+      const exp = state.exp;
+      const nx = x_mm / exp.x_max_mm;
+      // Y=y_min_mm at bottom, Y=y_max_mm at top (matches Nadir Map View)
+      const ny = (y_mm - exp.y_min_mm) / (exp.y_max_mm - exp.y_min_mm);
+      const rawX = rect.x + nx * rect.w;
+      const rawY = rect.y + (1.0 - ny) * rect.h;
+
+      const cx = mapCanvas.width / 2;
+      const cy = mapCanvas.height / 2;
+      return {
+        x: cx + (rawX - cx + state.panX) * state.zoom,
+        y: cy + (rawY - cy + state.panY) * state.zoom
+      };
+    }
+
+    function screenToMapWorld(scrX, scrY) {
+      const exp = state.exp;
+      const rects = getMapPlotRects();
+      const cx = mapCanvas.width / 2;
+      const cy = mapCanvas.height / 2;
+      const unX = (scrX - cx) / state.zoom - state.panX + cx;
+      const unY = (scrY - cy) / state.zoom - state.panY + cy;
+
+      let activeRect = rects[0];
+      if (rects.length > 1 && unX >= rects[1].x - 18) {
+        activeRect = rects[1];
+      }
+
+      const nx = Math.max(0, Math.min(1, (unX - activeRect.x) / activeRect.w));
+      const ny = Math.max(0, Math.min(1, 1.0 - (unY - activeRect.y) / activeRect.h));
+
+      return {
+        x_mm: nx * exp.x_max_mm,
+        y_mm: exp.y_min_mm + ny * (exp.y_max_mm - exp.y_min_mm),
+        proxy: activeRect.proxy
+      };
+    }
+
+    // --- RENDER 2D MAP VIEW CANVAS ---
+    function renderMapView() {
+      if (!mapCanvas.width || !state.exp) return;
+      const exp = state.exp;
+      mapCtx.clearRect(0, 0, mapCanvas.width, mapCanvas.height);
+
+      const rects = getMapPlotRects();
+      const frameIdx = state.currentFrameIdx;
+      const fOffset = frameIdx * exp.map_h * exp.map_w;
+
+      rects.forEach(rect => {
+        const proxy = rect.proxy;
+        const vol = (proxy === 'VG') ? state.vgVol : state.srVol;
+        const cmapName = (state.colormapMode === 'auto')
+          ? (proxy === 'VG' ? 'plasma' : 'inferno')
+          : state.colormapMode;
+        const lut = LUTS[cmapName] || LUTS.inferno;
+        const threshU8 = physicalToU8Threshold(proxy, state.threshold);
+
+        // 1. Build 2D Map ImageData in offscreenCanvas (Flip vertically so row 0 = bottom = y_min)
+        const imgData = offscreenCtx.createImageData(exp.map_w, exp.map_h);
+        const dst = imgData.data;
+        for (let r = 0; r < exp.map_h; r++) {
+          const dispRow = (exp.map_h - 1) - r;
+          const srcOff = fOffset + r * exp.map_w;
+          const dstOff = dispRow * exp.map_w * 4;
+          for (let c = 0; c < exp.map_w; c++) {
+            const u8 = vol[srcOff + c];
+            const p = dstOff + c * 4;
+            if (state.maskThreshold && u8 >= threshU8) {
+              // Highlight contour >= Threshold T
+              dst[p] = 56; dst[p + 1] = 235; dst[p + 2] = 248; dst[p + 3] = 255;
+            } else {
+              const l = u8 * 4;
+              dst[p] = lut[l];
+              dst[p + 1] = lut[l + 1];
+              dst[p + 2] = lut[l + 2];
+              dst[p + 3] = 255;
+            }
+          }
+        }
+        offscreenCtx.putImageData(imgData, 0, 0);
+
+        const tl = mapWorldToScreen(0, exp.y_max_mm, rect);
+        const br = mapWorldToScreen(exp.x_max_mm, exp.y_min_mm, rect);
+
+        mapCtx.save();
+        mapCtx.imageSmoothingEnabled = true;
+        mapCtx.imageSmoothingQuality = 'high';
+        mapCtx.drawImage(offscreenCanvas, tl.x, tl.y, br.x - tl.x, br.y - tl.y);
+
+        // Border box
+        mapCtx.strokeStyle = '#334155';
+        mapCtx.lineWidth = 1.2;
+        mapCtx.strokeRect(tl.x, tl.y, br.x - tl.x, br.y - tl.y);
+
+        // 2. 40 Horizontal Transect Lines
+        if (state.showTransects) {
+          mapCtx.strokeStyle = 'rgba(34, 211, 238, 0.16)';
+          mapCtx.lineWidth = 0.7;
+          for (let i = 0; i < 40; i++) {
+            const yl = exp.y_min_mm + (i / 39.0) * (exp.y_max_mm - exp.y_min_mm);
+            const pL = mapWorldToScreen(0, yl, rect);
+            const pR = mapWorldToScreen(exp.x_max_mm, yl, rect);
+            mapCtx.beginPath();
+            mapCtx.moveTo(pL.x, pL.y);
+            mapCtx.lineTo(pR.x, pR.y);
+            mapCtx.stroke();
+          }
+        }
+
+        // 3. Dynamic Pusher Plate Vertical Edge Line
+        const pusherX = exp.pusher_xs_mm[frameIdx];
+        if (pusherX <= exp.x_max_mm) {
+          const pTop = mapWorldToScreen(pusherX, exp.y_max_mm, rect);
+          const pBot = mapWorldToScreen(pusherX, exp.y_min_mm, rect);
+          mapCtx.strokeStyle = 'rgba(255, 255, 255, 0.9)';
+          mapCtx.lineWidth = 2.0;
+          mapCtx.setLineDash([6, 4]);
+          mapCtx.beginPath();
+          mapCtx.moveTo(pTop.x, pTop.y);
+          mapCtx.lineTo(pBot.x, pBot.y);
+          mapCtx.stroke();
+          mapCtx.setLineDash([]);
+        }
+
+        // 4. Render Fault Polylines & Keyframe Markers on 2D Map View
+        const actF = getActiveFault();
+
+        // 4A. Ghost Continuity Trace (Render active fault's closest prior keyframe reference)
+        if (state.showGhostTrace && actF && actF.visible && actF.keyframes && actF.keyframes.length > 0) {
+          const priorKfs = actF.keyframes
+            .filter(k => k.active_frame < frameIdx && k.pts && k.pts.length > 0)
+            .sort((a, b) => a.active_frame - b.active_frame);
+          const prevKf = priorKfs.length > 0 ? priorKfs[priorKfs.length - 1] : null;
+
+          if (prevKf) {
+            mapCtx.save();
+            mapCtx.strokeStyle = '#38bdf8'; // High-contrast cyan
+            mapCtx.lineWidth = 2.4;
+            mapCtx.setLineDash([7, 4]);
+            mapCtx.shadowColor = 'rgba(56, 189, 248, 0.7)';
+            mapCtx.shadowBlur = 6;
+
+            mapCtx.beginPath();
+            prevKf.pts.forEach((pt, idx) => {
+              const s = mapWorldToScreen(pt[0], pt[1], rect);
+              if (idx === 0) mapCtx.moveTo(s.x, s.y);
+              else mapCtx.lineTo(s.x, s.y);
+            });
+            mapCtx.stroke();
+            mapCtx.shadowBlur = 0;
+            mapCtx.setLineDash([]);
+
+            // Vertex rings (hollow cyan nodes)
+            prevKf.pts.forEach(pt => {
+              const s = mapWorldToScreen(pt[0], pt[1], rect);
+              mapCtx.beginPath();
+              mapCtx.arc(s.x, s.y, 2.8, 0, Math.PI * 2);
+              mapCtx.fillStyle = '#070b12';
+              mapCtx.strokeStyle = '#38bdf8';
+              mapCtx.lineWidth = 1.3;
+              mapCtx.fill();
+              mapCtx.stroke();
+            });
+
+            // Ghost Reference Center Badge
+            const midPt = prevKf.pts[Math.floor(prevKf.pts.length / 2)];
+            const sMid = mapWorldToScreen(midPt[0], midPt[1], rect);
+            const ys = prevKf.pts.map(p => p[1]);
+            const minY = Math.min(...ys);
+            const maxY = Math.max(...ys);
+            const spanY = maxY - minY;
+            const badgeText = `👻 Ref Kontinuitas: ${actF.id} [Fr #${prevKf.photo_frame} | Y:${minY.toFixed(0)}–${maxY.toFixed(0)} mm | Span:${spanY.toFixed(0)} mm]`;
+
+            mapCtx.font = 'bold 10px monospace';
+            const tw = mapCtx.measureText(badgeText).width;
+            mapCtx.fillStyle = 'rgba(15, 23, 42, 0.92)';
+            mapCtx.fillRect(sMid.x + 10, sMid.y - 10, tw + 10, 18);
+            mapCtx.strokeStyle = '#38bdf8';
+            mapCtx.lineWidth = 1;
+            mapCtx.strokeRect(sMid.x + 10, sMid.y - 10, tw + 10, 18);
+            mapCtx.fillStyle = '#38bdf8';
+            mapCtx.fillText(badgeText, sMid.x + 15, sMid.y + 3);
+
+            mapCtx.restore();
+          }
+        }
+
+        // 4B. Render All Keyframe Traces for Active and Other Faults
+        state.faults.forEach(f => {
+          if (!f.visible || !f.keyframes || f.keyframes.length === 0) return;
+          const isActFault = (f.id === state.activeFaultId);
+
+          f.keyframes.forEach(kf => {
+            if (!kf.pts || kf.pts.length === 0) return;
+            const frameDiff = Math.abs(kf.active_frame - frameIdx);
+            const isExactFrame = (kf.active_frame === frameIdx);
+
+            // Show exact-frame picks brightly; show other keyframes of active fault as subtle reference
+            if (!isExactFrame && !isActFault && frameDiff > 8) return;
+
+            mapCtx.save();
+            mapCtx.strokeStyle = f.color;
+            mapCtx.lineWidth = isExactFrame ? 3.4 : (isActFault ? 1.6 : 1.1);
+            mapCtx.globalAlpha = isExactFrame ? 1.0 : (isActFault ? 0.45 : 0.25);
+            if (!isExactFrame) mapCtx.setLineDash([4, 4]);
+
+            mapCtx.beginPath();
+            kf.pts.forEach((pt, idx) => {
+              const s = mapWorldToScreen(pt[0], pt[1], rect);
+              if (idx === 0) mapCtx.moveTo(s.x, s.y);
+              else mapCtx.lineTo(s.x, s.y);
+            });
+            mapCtx.stroke();
+            mapCtx.setLineDash([]);
+
+            // Draw vertices & stage symbols
+            if (isExactFrame || isActFault) {
+              kf.pts.forEach((pt) => {
+                const s = mapWorldToScreen(pt[0], pt[1], rect);
+                mapCtx.beginPath();
+                mapCtx.arc(s.x, s.y, isExactFrame ? 3.6 : 2.2, 0, Math.PI * 2);
+                mapCtx.fillStyle = isExactFrame ? '#ffffff' : f.color;
+                mapCtx.strokeStyle = '#000';
+                mapCtx.lineWidth = 1;
+                mapCtx.fill();
+                mapCtx.stroke();
+              });
+
+              // Stage Endpoint Badges (★ Onset, ◆ Growth, ■ Breach)
+              const midPt = kf.pts[Math.floor(kf.pts.length / 2)];
+              const midScr = mapWorldToScreen(midPt[0], midPt[1], rect);
+              if (kf.stage === 'onset') {
+                drawStar(mapCtx, midScr.x, midScr.y, 5, isExactFrame ? 10 : 7, 4.5, '#facc15', '#000');
+              } else if (kf.stage === 'breach') {
+                const sz = isExactFrame ? 10 : 7;
+                mapCtx.fillStyle = f.color;
+                mapCtx.strokeStyle = '#000';
+                mapCtx.lineWidth = 1.5;
+                mapCtx.fillRect(midScr.x - sz / 2, midScr.y - sz / 2, sz, sz);
+                mapCtx.strokeRect(midScr.x - sz / 2, midScr.y - sz / 2, sz, sz);
+              } else {
+                // Diamond for intermediate growth
+                drawDiamond(mapCtx, midScr.x, midScr.y, isExactFrame ? 7 : 5, '#fde047', '#000');
+              }
+
+              if (isExactFrame) {
+                // Compute growth from prior keyframe if available
+                let growthStr = '';
+                const priorKfs = (f.keyframes || []).filter(k => k.active_frame < frameIdx && k.pts && k.pts.length >= 2);
+                if (priorKfs.length > 0) {
+                  const pKf = priorKfs[priorKfs.length - 1];
+                  const pSpan = Math.max(...pKf.pts.map(p => p[1])) - Math.min(...pKf.pts.map(p => p[1]));
+                  const cSpan = Math.max(...kf.pts.map(p => p[1])) - Math.min(...kf.pts.map(p => p[1]));
+                  const diff = cSpan - pSpan;
+                  if (diff > 0) growthStr = ` (+${diff.toFixed(0)} mm)`;
+                }
+
+                const lbl = `${f.id} [${kf.stage.toUpperCase()} Fr #${kf.photo_frame}${growthStr}]`;
+                mapCtx.font = 'bold 10px sans-serif';
+                const tw = mapCtx.measureText(lbl).width;
+                mapCtx.fillStyle = 'rgba(15, 23, 42, 0.90)';
+                mapCtx.fillRect(midScr.x + 10, midScr.y - 9, tw + 8, 16);
+                mapCtx.strokeStyle = f.color;
+                mapCtx.strokeRect(midScr.x + 10, midScr.y - 9, tw + 8, 16);
+                mapCtx.fillStyle = '#fff';
+                mapCtx.fillText(lbl, midScr.x + 14, midScr.y + 3);
+              }
+            }
+            mapCtx.restore();
+          });
+        });
+
+        // 4C. Render Two-Point Interpolated Fault Trace (between Onset and Breach)
+        state.faults.forEach(f => {
+          if (!f.visible || !f.interpolated_traces) return;
+          const isActFault = (f.id === state.activeFaultId);
+          // Only draw if there is no exact keyframe on this frame
+          const hasExactKf = f.keyframes && f.keyframes.some(k => k.active_frame === frameIdx);
+          if (hasExactKf) return;
+
+          const iPts = f.interpolated_traces[frameIdx];
+          if (!iPts || iPts.length < 2) return;
+
+          const envEntry = (f.lateral_envelope || []).find(e => e.active_frame === frameIdx);
+          const isPeak = envEntry ? envEntry.is_peak : true;
+
+          mapCtx.save();
+          mapCtx.strokeStyle = f.color;
+          mapCtx.lineWidth = isActFault ? (isPeak ? 3.0 : 2.0) : 1.6;
+          mapCtx.globalAlpha = isActFault ? (isPeak ? 0.95 : 0.70) : 0.45;
+          if (!isPeak) mapCtx.setLineDash([5, 3]);
+
+          mapCtx.beginPath();
+          iPts.forEach((pt, idx) => {
+            const s = mapWorldToScreen(pt[0], pt[1], rect);
+            if (idx === 0) mapCtx.moveTo(s.x, s.y);
+            else mapCtx.lineTo(s.x, s.y);
+          });
+          mapCtx.stroke();
+          mapCtx.setLineDash([]);
+
+          // Draw endpoint rings
+          [iPts[0], iPts[iPts.length - 1]].forEach(pt => {
+            const s = mapWorldToScreen(pt[0], pt[1], rect);
+            mapCtx.beginPath();
+            mapCtx.arc(s.x, s.y, isActFault ? 3.5 : 2.2, 0, Math.PI * 2);
+            mapCtx.fillStyle = isPeak ? '#facc15' : f.color;
+            mapCtx.fill();
+            mapCtx.strokeStyle = '#000000';
+            mapCtx.lineWidth = 1;
+            mapCtx.stroke();
+          });
+
+          // Badge for active fault
+          if (isActFault) {
+            const midPt = iPts[Math.floor(iPts.length / 2)];
+            const midScr = mapWorldToScreen(midPt[0], midPt[1], rect);
+            const ys = iPts.map(p => p[1]);
+            const spanY = Math.max(...ys) - Math.min(...ys);
+
+            const kfOnset = f.keyframes.find(k => k.stage === 'onset');
+            const kfBreach = f.keyframes.find(k => k.stage === 'breach');
+            let pctStr = '';
+            if (kfOnset && kfBreach && kfBreach.active_frame !== kfOnset.active_frame) {
+              const p = Math.round(((frameIdx - kfOnset.active_frame) / (kfBreach.active_frame - kfOnset.active_frame)) * 100);
+              pctStr = ` ${p}% | `;
+            }
+            const peakTag = isPeak ? 'Puncak' : 'Panduan';
+            const lbl = `⚡ ${f.id} [${peakTag}${pctStr}Span: ${spanY.toFixed(0)} mm]`;
+
+            mapCtx.font = 'bold 10px monospace';
+            const tw = mapCtx.measureText(lbl).width;
+            mapCtx.fillStyle = 'rgba(15, 23, 42, 0.92)';
+            mapCtx.fillRect(midScr.x + 10, midScr.y - 9, tw + 8, 17);
+            mapCtx.strokeStyle = isPeak ? '#facc15' : '#38bdf8';
+            mapCtx.lineWidth = 1.2;
+            mapCtx.strokeRect(midScr.x + 10, midScr.y - 9, tw + 8, 17);
+            mapCtx.fillStyle = isPeak ? '#facc15' : '#38bdf8';
+            mapCtx.fillText(lbl, midScr.x + 14, midScr.y + 3);
+          }
+          mapCtx.restore();
+        });
+
+        // Guided Seed A indicator
+        if (state.guidedSeedA) {
+          const sa = mapWorldToScreen(state.guidedSeedA.x_mm, state.guidedSeedA.y_mm, rect);
+          drawStar(mapCtx, sa.x, sa.y, 5, 9, 4, '#38bdf8', '#000');
+        }
+
+        // 5. Axes Ticks & Labels
+        mapCtx.fillStyle = '#94a3b8';
+        mapCtx.font = '10px monospace';
+        mapCtx.textAlign = 'center';
+        for (let x = 0; x <= exp.x_max_mm; x += 50) {
+          const p = mapWorldToScreen(x, exp.y_min_mm, rect);
+          mapCtx.fillText(`${x}`, p.x, br.y + 14);
+        }
+        mapCtx.fillText('Tectonic Transport Distance X (mm) [Foreland 0 mm ← Pusher 450 mm]', (tl.x + br.x) / 2, br.y + 28);
+
+        mapCtx.textAlign = 'right';
+        for (let y = 50; y <= 350; y += 50) {
+          const p = mapWorldToScreen(0, y, rect);
+          mapCtx.fillText(`${y}`, tl.x - 6, p.y + 3);
+        }
+
+        mapCtx.textAlign = 'left';
+        mapCtx.fillStyle = '#e2e8f0';
+        mapCtx.font = 'bold 11px sans-serif';
+        mapCtx.fillText(rect.title, tl.x, tl.y - 7);
+        mapCtx.restore();
+      });
+
+      // Update Top-Left HUD
+      const pFrame = exp.photo_frames[frameIdx];
+      document.getElementById('hud-photo-frame').textContent = `#${String(pFrame).padStart(3, '0')}`;
+      document.getElementById('hud-active-frame').textContent = `(Act ${String(frameIdx).padStart(3, '0')}/${exp.active_frames - 1})`;
+      document.getElementById('hud-strain').textContent = `${exp.strains[frameIdx].toFixed(2)}%`;
+      document.getElementById('hud-disp').textContent = `${exp.disps_mm[frameIdx].toFixed(1)} mm`;
+      document.getElementById('inp-jump-photo').value = pFrame;
+      document.getElementById('rng-frame').value = frameIdx;
+    }
+
+    // --- RENDER TIMELINE SPARKLINE BAR ---
+    function renderSparkline() {
+      const exp = state.exp;
+      if (!exp || !sparkCanvas.width) return;
+      const w = sparkCanvas.width;
+      const h = sparkCanvas.height;
+      sparkCtx.clearRect(0, 0, w, h);
+
+      const n = exp.active_frames;
+      // Draw threshold line
+      const yThresh = h - (state.threshold / 0.055) * (h - 6) - 2;
+      sparkCtx.strokeStyle = 'rgba(56, 189, 248, 0.35)';
+      sparkCtx.setLineDash([3, 3]);
+      sparkCtx.beginPath();
+      sparkCtx.moveTo(0, yThresh);
+      sparkCtx.lineTo(w, yThresh);
+      sparkCtx.stroke();
+      sparkCtx.setLineDash([]);
+
+      // Draw Peak SR curve
+      sparkCtx.strokeStyle = '#f97316';
+      sparkCtx.lineWidth = 1.4;
+      sparkCtx.beginPath();
+      for (let i = 0; i < n; i++) {
+        const x = (i / (n - 1)) * w;
+        const val = exp.peak_srs[i] || 0;
+        const y = h - Math.min(1, val / 0.055) * (h - 6) - 2;
+        if (i === 0) sparkCtx.moveTo(x, y);
+        else sparkCtx.lineTo(x, y);
+      }
+      sparkCtx.stroke();
+
+      // Draw Fault Keyframe Pins
+      state.faults.forEach(f => {
+        if (!f.visible || !f.keyframes) return;
+        f.keyframes.forEach(kf => {
+          const x = (kf.active_frame / (n - 1)) * w;
+          sparkCtx.strokeStyle = f.color;
+          sparkCtx.lineWidth = 1.5;
+          sparkCtx.beginPath();
+          sparkCtx.moveTo(x, 0);
+          sparkCtx.lineTo(x, h);
+          sparkCtx.stroke();
+        });
+      });
+
+      // Current Frame Playhead
+      const curX = (state.currentFrameIdx / (n - 1)) * w;
+      sparkCtx.strokeStyle = '#ffffff';
+      sparkCtx.lineWidth = 2.2;
+      sparkCtx.beginPath();
+      sparkCtx.moveTo(curX, 0);
+      sparkCtx.lineTo(curX, h);
+      sparkCtx.stroke();
+    }
+
+    // --- RENDER SYNCHRONIZED PLOT A: LATERAL PROPAGATION (Y vs STRAIN) ---
+    function renderKinematicsPlot() {
+      const exp = state.exp;
+      if (!exp || !kinCanvas.width) return;
+      const w = kinCanvas.width;
+      const h = kinCanvas.height;
+      kinCtx.clearRect(0, 0, w, h);
+
+      const m = { left: 36, right: 14, top: 12, bottom: 24 };
+      const pw = w - m.left - m.right;
+      const ph = h - m.top - m.bottom;
+
+      const sToX = (s) => m.left + (s / exp.total_strain_pct) * pw;
+      const yToY = (y) => m.top + (1.0 - (y - exp.y_min_mm) / (exp.y_max_mm - exp.y_min_mm)) * ph;
+
+      // Grid
+      kinCtx.strokeStyle = '#1e293b';
+      kinCtx.lineWidth = 1;
+      kinCtx.fillStyle = '#64748b';
+      kinCtx.font = '9px monospace';
+      kinCtx.textAlign = 'center';
+      for (let s = 0; s <= exp.total_strain_pct; s += 10) {
+        const x = sToX(s);
+        kinCtx.beginPath(); kinCtx.moveTo(x, m.top); kinCtx.lineTo(x, m.top + ph); kinCtx.stroke();
+        kinCtx.fillText(`${s}%`, x, h - 6);
+      }
+      kinCtx.textAlign = 'right';
+      for (let y = 100; y <= 350; y += 100) {
+        const py = yToY(y);
+        kinCtx.beginPath(); kinCtx.moveTo(m.left, py); kinCtx.lineTo(m.left + pw, py); kinCtx.stroke();
+        kinCtx.fillText(`${y}`, m.left - 4, py + 3);
+      }
+
+      // Fault lateral propagation trajectories
+      state.faults.forEach(f => {
+        if (!f.visible || !f.keyframes || f.keyframes.length === 0) return;
+
+        // Mode A: Render Continuous Retro-Tracked Lateral Envelope if available
+        if (f.lateral_envelope && f.lateral_envelope.length > 1) {
+          const env = f.lateral_envelope;
+          kinCtx.save();
+
+          // 1. Fill Shaded Lateral Propagation Wedge
+          kinCtx.beginPath();
+          env.forEach((pt, idx) => {
+            const sx = sToX(pt.strain_pct);
+            const sy = yToY(pt.yMax);
+            if (idx === 0) kinCtx.moveTo(sx, sy);
+            else kinCtx.lineTo(sx, sy);
+          });
+          for (let idx = env.length - 1; idx >= 0; idx--) {
+            const sx = sToX(env[idx].strain_pct);
+            const sy = yToY(env[idx].yMin);
+            kinCtx.lineTo(sx, sy);
+          }
+          kinCtx.closePath();
+          kinCtx.fillStyle = f.color + '26'; // ~15% alpha
+          kinCtx.fill();
+
+          // 2. Draw Top Tip Trajectory Line (yMax)
+          kinCtx.strokeStyle = f.color;
+          kinCtx.lineWidth = (f.id === state.activeFaultId) ? 2.6 : 1.6;
+          kinCtx.beginPath();
+          env.forEach((pt, idx) => {
+            const sx = sToX(pt.strain_pct);
+            const sy = yToY(pt.yMax);
+            if (idx === 0) kinCtx.moveTo(sx, sy);
+            else kinCtx.lineTo(sx, sy);
+          });
+          kinCtx.stroke();
+
+          // 3. Draw Bottom Tip Trajectory Line (yMin)
+          kinCtx.beginPath();
+          env.forEach((pt, idx) => {
+            const sx = sToX(pt.strain_pct);
+            const sy = yToY(pt.yMin);
+            if (idx === 0) kinCtx.moveTo(sx, sy);
+            else kinCtx.lineTo(sx, sy);
+          });
+          kinCtx.stroke();
+
+          // 4. Draw Midline Trajectory (Dashed)
+          kinCtx.setLineDash([3, 3]);
+          kinCtx.lineWidth = 1.0;
+          kinCtx.beginPath();
+          env.forEach((pt, idx) => {
+            const sx = sToX(pt.strain_pct);
+            const sy = yToY(0.5 * (pt.yMin + pt.yMax));
+            if (idx === 0) kinCtx.moveTo(sx, sy);
+            else kinCtx.lineTo(sx, sy);
+          });
+          kinCtx.stroke();
+          kinCtx.setLineDash([]);
+
+          // 5. Nucleation Onset Star (★)
+          const first = env[0];
+          const onsetSx = sToX(first.strain_pct);
+          const onsetSy = yToY(0.5 * (first.yMin + first.yMax));
+          drawStar(kinCtx, onsetSx, onsetSy, 5, 7.5, 3.5, '#facc15', '#000');
+
+          // 6. Breach Square (■)
+          const last = env[env.length - 1];
+          const breachSx = sToX(last.strain_pct);
+          const breachSy = yToY(0.5 * (last.yMin + last.yMax));
+          kinCtx.fillStyle = f.color;
+          kinCtx.strokeStyle = '#000';
+          kinCtx.lineWidth = 1.2;
+          kinCtx.fillRect(breachSx - 4, breachSy - 4, 8, 8);
+          kinCtx.strokeRect(breachSx - 4, breachSy - 4, 8, 8);
+
+          // 7. Onset & Breach Badges for active fault
+          if (f.id === state.activeFaultId) {
+            kinCtx.font = 'bold 9px monospace';
+            kinCtx.fillStyle = '#facc15';
+            kinCtx.textAlign = 'left';
+            kinCtx.fillText(`★ Fr ${first.photo_frame} (${first.strain_pct}%)`, onsetSx + 8, onsetSy + 3);
+
+            kinCtx.fillStyle = f.color;
+            kinCtx.textAlign = 'right';
+            kinCtx.fillText(`■ Fr ${last.photo_frame} (${last.strain_pct}%)`, breachSx - 8, breachSy + 3);
+          }
+
+          kinCtx.restore();
+        } else {
+          // Mode B: Fallback Keyframe Span Bars
+          kinCtx.strokeStyle = f.color;
+          kinCtx.lineWidth = (f.id === state.activeFaultId) ? 2.5 : 1.5;
+
+          const kfPoints = [];
+          f.keyframes.forEach(kf => {
+            if (!kf.pts || kf.pts.length === 0) return;
+            const ys = kf.pts.map(p => p[1]);
+            const yMin = Math.min(...ys);
+            const yMax = Math.max(...ys);
+            const yMid = 0.5 * (yMin + yMax);
+            const sx = sToX(kf.strain_pct);
+
+            // Vertical span bar at keyframe strain
+            kinCtx.beginPath();
+            kinCtx.moveTo(sx, yToY(yMin));
+            kinCtx.lineTo(sx, yToY(yMax));
+            kinCtx.stroke();
+
+            kfPoints.push({ sx, sy: yToY(yMid), stage: kf.stage, yMin, yMax });
+          });
+
+          if (kfPoints.length > 1) {
+            kinCtx.beginPath();
+            kfPoints.forEach((p, idx) => {
+              if (idx === 0) kinCtx.moveTo(p.sx, p.sy);
+              else kinCtx.lineTo(p.sx, p.sy);
+            });
+            kinCtx.stroke();
+          }
+
+          kfPoints.forEach(p => {
+            if (p.stage === 'onset') drawStar(kinCtx, p.sx, p.sy, 5, 6.5, 3, '#facc15', '#000');
+            else if (p.stage === 'breach') {
+              kinCtx.fillStyle = f.color;
+              kinCtx.fillRect(p.sx - 3.5, p.sy - 3.5, 7, 7);
+            } else {
+              drawDiamond(kinCtx, p.sx, p.sy, 4.5, '#fde047', '#000');
+            }
+          });
+        }
+      });
+
+      // Current Frame Vertical Cursor
+      const curStrain = exp.strains[state.currentFrameIdx];
+      const curX = sToX(curStrain);
+      kinCtx.strokeStyle = '#ef4444';
+      kinCtx.lineWidth = 1.6;
+      kinCtx.setLineDash([4, 3]);
+      kinCtx.beginPath();
+      kinCtx.moveTo(curX, m.top);
+      kinCtx.lineTo(curX, m.top + ph);
+      kinCtx.stroke();
+      kinCtx.setLineDash([]);
+    }
+
+    // --- RENDER SYNCHRONIZED PLOT B: CENTERLINE KYMOGRAPH REFERENCE ---
+    function renderKymoRef() {
+      const exp = state.exp;
+      if (!exp || !kymoRefCanvas.width) return;
+      const w = kymoRefCanvas.width;
+      const h = kymoRefCanvas.height;
+      kymoRefCtx.clearRect(0, 0, w, h);
+
+      const m = { left: 36, right: 14, top: 8, bottom: 20 };
+      const pw = w - m.left - m.right;
+      const ph = h - m.top - m.bottom;
+
+      const img = (state.viewMode === 'VG' && state.kymoRefImgVG) ? state.kymoRefImgVG : state.kymoRefImgSR;
+      if (img) {
+        kymoRefCtx.drawImage(img, m.left, m.top, pw, ph);
+      }
+
+      // Draw stars for fault keyframes
+      state.faults.forEach(f => {
+        if (!f.visible || !f.keyframes) return;
+        f.keyframes.forEach(kf => {
+          if (!kf.pts || kf.pts.length === 0) return;
+          const meanX = kf.pts.reduce((a, p) => a + p[0], 0) / kf.pts.length;
+          const sx = m.left + (meanX / exp.x_max_mm) * pw;
+          const sy = m.top + (1.0 - kf.strain_pct / exp.total_strain_pct) * ph;
+          if (kf.stage === 'onset') drawStar(kymoRefCtx, sx, sy, 5, 6, 2.8, '#facc15', '#000');
+        });
+      });
+
+      // Current Frame Horizontal Cursor Line
+      const curStrain = exp.strains[state.currentFrameIdx];
+      const curY = m.top + (1.0 - curStrain / exp.total_strain_pct) * ph;
+      kymoRefCtx.strokeStyle = '#38bdf8';
+      kymoRefCtx.lineWidth = 1.8;
+      kymoRefCtx.setLineDash([4, 3]);
+      kymoRefCtx.beginPath();
+      kymoRefCtx.moveTo(m.left, curY);
+      kymoRefCtx.lineTo(m.left + pw, curY);
+      kymoRefCtx.stroke();
+      kymoRefCtx.setLineDash([]);
+    }
+
+    // --- SHAPE HELPERS ---
+    function drawStar(ctx, cx, cy, spikes, outerR, innerR, fill, stroke) {
+      let rot = (Math.PI / 2) * 3;
+      const step = Math.PI / spikes;
+      ctx.beginPath();
+      ctx.moveTo(cx, cy - outerR);
+      for (let i = 0; i < spikes; i++) {
+        ctx.lineTo(cx + Math.cos(rot) * outerR, cy + Math.sin(rot) * outerR);
+        rot += step;
+        ctx.lineTo(cx + Math.cos(rot) * innerR, cy + Math.sin(rot) * innerR);
+        rot += step;
+      }
+      ctx.closePath();
+      ctx.fillStyle = fill;
+      ctx.fill();
+      if (stroke) { ctx.strokeStyle = stroke; ctx.lineWidth = 1.2; ctx.stroke(); }
+    }
+
+    function drawDiamond(ctx, cx, cy, r, fill, stroke) {
+      ctx.beginPath();
+      ctx.moveTo(cx, cy - r);
+      ctx.lineTo(cx + r, cy);
+      ctx.lineTo(cx, cy + r);
+      ctx.lineTo(cx - r, cy);
+      ctx.closePath();
+      ctx.fillStyle = fill;
+      ctx.fill();
+      if (stroke) { ctx.strokeStyle = stroke; ctx.lineWidth = 1.2; ctx.stroke(); }
+    }
+
+    // --- KINEMATICS COMPUTATION PER FAULT ---
+    function computeFaultKinematics(fault) {
+      const exp = state.exp;
+      if (!fault.keyframes || fault.keyframes.length === 0) return null;
+
+      const sorted = [...fault.keyframes].sort((a, b) => a.active_frame - b.active_frame);
+      const kfOnset = sorted.find(k => k.stage === 'onset') || sorted[0];
+      const kfBreach = sorted.find(k => k.stage === 'breach') || sorted[sorted.length - 1];
+      const growthKfs = sorted.filter(k => k !== kfOnset && k !== kfBreach);
+
+      const getGeometry = (kf) => {
+        if (!kf || !kf.pts || kf.pts.length === 0) return { xMean: 0, yMin: 0, yMax: 0, spanY: 0 };
+        const xs = kf.pts.map(p => p[0]);
+        const ys = kf.pts.map(p => p[1]);
+        const yMin = Math.min(...ys);
+        const yMax = Math.max(...ys);
+        return {
+          xMean: xs.reduce((a, b) => a + b, 0) / xs.length,
+          yMin,
+          yMax,
+          spanY: Math.max(10, yMax - yMin)
+        };
+      };
+
+      const gOnset = getGeometry(kfOnset);
+      const gBreach = getGeometry(kfBreach);
+
+      const deltaEps = Math.max(0.05, kfBreach.strain_pct - kfOnset.strain_pct);
+      const deltaDispMm = (deltaEps / 100.0) * exp.L0_mm;
+      const dFrames = Math.max(1, kfBreach.active_frame - kfOnset.active_frame);
+      const dtSec = dFrames * 22.0;
+      const dtMin = dtSec / 60.0;
+
+      const propDistMm = Math.max(gBreach.spanY, 347.0);
+      const vLatMms = propDistMm / dtSec;
+      const vLatCmMin = (propDistMm / 10.0) / dtMin;
+
+      return {
+        kfOnset,
+        kfBreach,
+        growthKfs,
+        gOnset,
+        gBreach,
+        deltaEps,
+        deltaDispMm,
+        dFrames,
+        vLatMms,
+        vLatCmMin
+      };
+    }
+
+    // --- UI PANELS REFRESH ---
+    function getActiveFault() {
+      return state.faults.find(f => f.id === state.activeFaultId) || state.faults[0];
+    }
+
+    function refreshAllUI() {
+      renderFaultTabsAndMoments();
+      renderQuickKeyframePills();
+      updateKinematicsTable();
+      renderMapView();
+      renderSparkline();
+      renderKinematicsPlot();
+      renderKymoRef();
+    }
+
+    function renderFaultTabsAndMoments() {
+      const tabsBar = document.getElementById('fault-tabs-bar');
+      tabsBar.innerHTML = '';
+
+      // Update Top Toolbar Fault Selector Dropdown
+      const selActive = document.getElementById('sel-active-fault');
+      if (selActive) {
+        selActive.innerHTML = '';
+        if (state.faults.length === 0) {
+          const opt = document.createElement('option');
+          opt.value = '';
+          opt.textContent = '(Belum ada sesar)';
+          selActive.appendChild(opt);
+        } else {
+          state.faults.forEach(f => {
+            const opt = document.createElement('option');
+            opt.value = f.id;
+            opt.textContent = `${f.id} — ${f.name}`;
+            if (f.id === state.activeFaultId) opt.selected = true;
+            selActive.appendChild(opt);
+          });
+        }
+      }
+
+      if (state.faults.length === 0) {
+        tabsBar.innerHTML = '<span class="text-[11px] text-slate-500 italic py-0.5">Katalog kosong</span>';
+        document.getElementById('badge-fault-count').textContent = '0';
+        document.getElementById('inp-active-fault-color').value = '#94a3b8';
+        document.getElementById('inp-active-fault-name').value = '(Katalog Kosong)';
+        document.getElementById('txt-active-fault-corridor').textContent = 'Corridor: ---';
+
+        const listEl = document.getElementById('active-fault-moments-list');
+        listEl.innerHTML = `
+          <div class="p-3 text-center bg-slate-950/70 border border-dashed border-slate-700/80 rounded text-xs space-y-2 my-1">
+            <div class="text-amber-300 font-bold flex items-center justify-center gap-1">
+              <span>✨</span><span>Sesi Siap untuk Picking Manual</span>
+            </div>
+            <div class="text-slate-400 text-[11px] leading-relaxed text-left">
+              1. Geser scrubber ke frame awal sesar (misal <b>Frame #22</b>).<br>
+              2. Klik pita sesar di <b>2D Map View</b> untuk assign sesar (<b>F1</b> otomatis dibuat).<br>
+              3. Maju frame (misal ke Fr #26) — amati garis <b>👻 Kontinuitas (Ghost)</b>.<br>
+              4. Klik <b>[🎯 Deteksi Tepi Terjauh]</b> (hotkey: <b>D</b>) untuk mendeteksi perambatan lateral sampai dinding tepi.
+            </div>
+            <div class="flex items-center justify-center gap-2 pt-1">
+              <button id="btn-empty-add-f1" class="px-2.5 py-1 bg-sky-600 hover:bg-sky-500 text-white font-bold rounded text-xs transition shadow">
+                + Buat Sesar F1
+              </button>
+              <button id="btn-empty-load-bench" class="px-2.5 py-1 bg-slate-800 hover:bg-slate-700 text-amber-300 font-semibold rounded text-xs border border-slate-600 transition">
+                📥 Muat Benchmark
+              </button>
+            </div>
+          </div>
+        `;
+        document.getElementById('btn-empty-add-f1')?.addEventListener('click', () => {
+          getOrCreateActiveFault();
+        });
+        document.getElementById('btn-empty-load-bench')?.addEventListener('click', () => {
+          loadBenchmarkFaults();
+        });
+
+        document.getElementById('card-onset-frame').textContent = '---';
+        document.getElementById('card-onset-eps').textContent = '---';
+        document.getElementById('card-breach-frame').textContent = '---';
+        document.getElementById('card-breach-eps').textContent = '---';
+        document.getElementById('card-delta-eps').textContent = '---';
+        document.getElementById('card-delta-disp').textContent = '---';
+        document.getElementById('card-vlat').textContent = '---';
+        document.getElementById('card-vlat-mms').textContent = '---';
+        return;
+      }
+
+      state.faults.forEach(f => {
+        const isAct = (f.id === state.activeFaultId);
+        const btn = document.createElement('button');
+        btn.className = `px-2.5 py-1 rounded text-xs font-bold flex items-center gap-1.5 border transition ${
+          isAct ? 'bg-slate-800 text-white border-sky-400 shadow' : 'bg-slate-900 text-slate-400 border-slate-800 hover:text-slate-200'
+        }`;
+        btn.innerHTML = `<span class="w-2.5 h-2.5 rounded-full inline-block" style="background:${f.color}"></span><span>${f.id}</span>`;
+        btn.addEventListener('click', () => {
+          state.activeFaultId = f.id;
+          // Jump to fault's onset frame when selecting fault tab
+          if (f.keyframes && f.keyframes.length > 0) {
+            state.currentFrameIdx = f.keyframes[0].active_frame;
+          }
+          refreshAllUI();
+        });
+        tabsBar.appendChild(btn);
+      });
+
+      document.getElementById('badge-fault-count').textContent = state.faults.length;
+
+      const actF = getActiveFault();
+      if (!actF) return;
+
+      document.getElementById('inp-active-fault-color').value = actF.color;
+      document.getElementById('inp-active-fault-name').value = actF.name;
+      if (actF.corridor) {
+        document.getElementById('txt-active-fault-corridor').textContent = `Corridor X: ${actF.corridor[0]}–${actF.corridor[1]} mm`;
+      }
+
+      const listEl = document.getElementById('active-fault-moments-list');
+      listEl.innerHTML = '';
+
+      (actF.keyframes || []).forEach((kf, idx) => {
+        const isCurFrame = (kf.active_frame === state.currentFrameIdx);
+        const ys = (kf.pts || []).map(p => p[1]);
+        const xs = (kf.pts || []).map(p => p[0]);
+        const xMean = xs.length ? (xs.reduce((a, b) => a + b, 0) / xs.length).toFixed(0) : '-';
+        const yRange = ys.length ? `${Math.min(...ys).toFixed(0)}–${Math.max(...ys).toFixed(0)}` : '-';
+        const icon = kf.stage === 'onset' ? '★' : (kf.stage === 'breach' ? '■' : '◆');
+        const badgeCol = kf.stage === 'onset' ? 'text-amber-300' : (kf.stage === 'breach' ? 'text-rose-300' : 'text-yellow-300');
+
+        const row = document.createElement('div');
+        row.className = `px-2 py-1 rounded border text-[11px] font-mono flex items-center justify-between cursor-pointer transition ${
+          isCurFrame ? 'bg-sky-950/70 border-sky-500 text-white' : 'bg-slate-950/70 border-slate-800 text-slate-300 hover:border-slate-700'
+        }`;
+        row.innerHTML = `
+          <div class="flex items-center space-x-1.5 truncate">
+            <span class="${badgeCol} font-bold">${icon} ${kf.stage.toUpperCase()}</span>
+            <span class="text-white font-bold">Frame #${kf.photo_frame}</span>
+            <span class="text-emerald-400">(${kf.strain_pct}%)</span>
+          </div>
+          <div class="flex items-center space-x-2 text-[10px] text-slate-400">
+            <span>X≈${xMean}mm</span>
+            <span>Y:${yRange}mm</span>
+            <button class="text-slate-500 hover:text-rose-400 font-bold px-1" data-del-kf="${idx}" title="Hapus momen ini">✕</button>
+          </div>
+        `;
+        row.addEventListener('click', (e) => {
+          if (e.target.dataset.delKf !== undefined) {
+            actF.keyframes.splice( Number(e.target.dataset.delKf), 1 );
+            refreshAllUI();
+            return;
+          }
+          state.currentFrameIdx = kf.active_frame;
+          state.activeStage = kf.stage;
+          updateStageButtons();
+          refreshAllUI();
+        });
+        listEl.appendChild(row);
+      });
+
+      const kin = computeFaultKinematics(actF);
+      if (kin) {
+        document.getElementById('card-onset-frame').textContent = `Fr ${kin.kfOnset.photo_frame}`;
+        document.getElementById('card-onset-eps').textContent = `${kin.kfOnset.strain_pct.toFixed(2)}%`;
+        document.getElementById('card-breach-frame').textContent = `Fr ${kin.kfBreach.photo_frame}`;
+        document.getElementById('card-breach-eps').textContent = `${kin.kfBreach.strain_pct.toFixed(2)}%`;
+        document.getElementById('card-delta-eps').textContent = `${kin.deltaEps.toFixed(2)}%`;
+        document.getElementById('card-delta-disp').textContent = `${kin.deltaDispMm.toFixed(1)} mm`;
+        document.getElementById('card-vlat').textContent = `${kin.vLatCmMin.toFixed(1)} cm/m`;
+        document.getElementById('card-vlat-mms').textContent = `${kin.vLatMms.toFixed(2)} mm/s`;
+      } else {
+        document.getElementById('card-onset-frame').textContent = '---';
+        document.getElementById('card-onset-eps').textContent = '---';
+        document.getElementById('card-breach-frame').textContent = '---';
+        document.getElementById('card-breach-eps').textContent = '---';
+        document.getElementById('card-delta-eps').textContent = '---';
+        document.getElementById('card-delta-disp').textContent = '---';
+        document.getElementById('card-vlat').textContent = '---';
+        document.getElementById('card-vlat-mms').textContent = '---';
+      }
+
+      // Update 2-Point Interpolation Status Badge
+      const badgeInterp = document.getElementById('badge-interp-status');
+      const txtInterp = document.getElementById('txt-interp-status');
+      if (badgeInterp && txtInterp) {
+        const kfOnset = actF.keyframes?.find(k => k.stage === 'onset');
+        const kfBreach = actF.keyframes?.find(k => k.stage === 'breach');
+        if (kfOnset && kfBreach) {
+          const dEps = Math.abs(kfBreach.strain_pct - kfOnset.strain_pct).toFixed(2);
+          const ysOnset = (kfOnset.pts || []).map(p => p[1]);
+          const ysBreach = (kfBreach.pts || []).map(p => p[1]);
+          const spanAwal = ysOnset.length ? (Math.max(...ysOnset) - Math.min(...ysOnset)).toFixed(0) : '0';
+          const spanFinal = ysBreach.length ? (Math.max(...ysBreach) - Math.min(...ysBreach)).toFixed(0) : '0';
+          txtInterp.innerHTML = `✨ <b>${actF.id} Terinterpolasi:</b> Fr #${kfOnset.photo_frame} (${spanAwal}mm) ➔ Fr #${kfBreach.photo_frame} (${spanFinal}mm) | Δε=${dEps}%`;
+          badgeInterp.className = 'flex items-center gap-1.5 px-2.5 py-1 rounded text-[11px] font-mono border border-emerald-500/80 bg-emerald-950/70 text-emerald-300 shadow';
+        } else if (kfOnset) {
+          txtInterp.innerHTML = `⭐ <b>${actF.id}:</b> Awal di Fr #${kfOnset.photo_frame} — Belum ada Final (🏁)`;
+          badgeInterp.className = 'flex items-center gap-1.5 px-2.5 py-1 rounded text-[11px] font-mono border border-amber-600/80 bg-amber-950/70 text-amber-300 shadow';
+        } else if (kfBreach) {
+          txtInterp.innerHTML = `🏁 <b>${actF.id}:</b> Final di Fr #${kfBreach.photo_frame} — Belum ada Awal (⭐)`;
+          badgeInterp.className = 'flex items-center gap-1.5 px-2.5 py-1 rounded text-[11px] font-mono border border-rose-600/80 bg-rose-950/70 text-rose-300 shadow';
+        } else {
+          txtInterp.textContent = `Pilih Awal (⭐) & Final (🏁) untuk ${actF.id}`;
+          badgeInterp.className = 'flex items-center gap-1.5 px-2.5 py-1 rounded text-[11px] font-mono border border-slate-700 bg-slate-900/90 text-slate-400';
+        }
+      }
+    }
+
+    function renderQuickKeyframePills() {
+      const container = document.getElementById('quick-keyframe-pills');
+      container.innerHTML = '';
+      state.faults.forEach(f => {
+        if (!f.keyframes || f.keyframes.length === 0) return;
+        f.keyframes.forEach(kf => {
+          const sym = kf.stage === 'onset' ? '★' : (kf.stage === 'breach' ? '■' : '◆');
+          const pill = document.createElement('button');
+          const isCur = (kf.active_frame === state.currentFrameIdx);
+          pill.className = `px-1.5 py-0.5 rounded text-[10px] font-mono font-bold border whitespace-nowrap transition ${
+            isCur ? 'bg-sky-600 text-white border-sky-300' : 'bg-slate-900 text-slate-300 border-slate-700 hover:border-slate-500'
+          }`;
+          pill.style.borderLeftColor = f.color;
+          pill.style.borderLeftWidth = '3px';
+          pill.textContent = `${f.id}${sym}${kf.photo_frame}`;
+          pill.title = `${f.name} — ${kf.label}`;
+          pill.addEventListener('click', () => {
+            state.activeFaultId = f.id;
+            state.currentFrameIdx = kf.active_frame;
+            refreshAllUI();
+          });
+          container.appendChild(pill);
+        });
+      });
+    }
+
+    function updateKinematicsTable() {
+      const tbody = document.getElementById('kinematics-tbody');
+      tbody.innerHTML = '';
+
+      state.faults.forEach(f => {
+        const kin = computeFaultKinematics(f);
+        if (!kin) return;
+        const growthStr = kin.growthKfs.length
+          ? kin.growthKfs.map(k => `Fr ${k.photo_frame} (${k.strain_pct}%)`).join(', ')
+          : '-';
+
+        const tr = document.createElement('tr');
+        tr.className = `hover:bg-slate-800/80 cursor-pointer ${f.id === state.activeFaultId ? 'bg-sky-950/40' : ''}`;
+        tr.innerHTML = `
+          <td class="py-1 px-2 font-bold" style="color:${f.color}">${f.id}</td>
+          <td class="py-1 px-2 text-amber-300 font-bold">Frame #${kin.kfOnset.photo_frame}</td>
+          <td class="py-1 px-2 text-emerald-400 font-bold">${kin.kfOnset.strain_pct.toFixed(2)}%</td>
+          <td class="py-1 px-2 text-slate-300">X=${kin.gOnset.xMean.toFixed(0)}, Y=${kin.gOnset.yMin.toFixed(0)}–${kin.gOnset.yMax.toFixed(0)}</td>
+          <td class="py-1 px-2 text-yellow-300">${growthStr}</td>
+          <td class="py-1 px-2 text-rose-300 font-bold">Frame #${kin.kfBreach.photo_frame}</td>
+          <td class="py-1 px-2 text-rose-400 font-bold">${kin.kfBreach.strain_pct.toFixed(2)}%</td>
+          <td class="py-1 px-2 text-sky-300 font-bold">${kin.deltaEps.toFixed(2)}%</td>
+          <td class="py-1 px-2 text-slate-300">${kin.deltaDispMm.toFixed(1)} mm</td>
+          <td class="py-1 px-2 text-slate-300">${kin.gBreach.spanY.toFixed(0)} mm</td>
+          <td class="py-1 px-2 text-emerald-300 font-bold">${kin.vLatMms.toFixed(2)}</td>
+          <td class="py-1 px-2 text-sky-400 font-bold">${kin.vLatCmMin.toFixed(2)}</td>
+        `;
+        tr.addEventListener('click', () => {
+          state.activeFaultId = f.id;
+          state.currentFrameIdx = kin.kfOnset.active_frame;
+          refreshAllUI();
+        });
+        tbody.appendChild(tr);
+      });
+    }
+
+    function setStatus(msg) {
+      document.getElementById('txt-status-banner').textContent = msg;
+    }
+
+    function updateStageButtons() {
+      document.querySelectorAll('.stage-btn').forEach(b => {
+        const isAct = (b.dataset.stage === state.activeStage);
+        b.className = isAct
+          ? 'stage-btn active px-2 py-0.5 rounded bg-amber-950/90 text-amber-300 border border-amber-400 font-bold flex items-center gap-1 transition'
+          : 'stage-btn px-2 py-0.5 rounded bg-slate-800 text-slate-300 border border-slate-700 font-bold flex items-center gap-1 transition';
+      });
+    }
+
+    // --- EVENT LISTENERS & INTERACTION SETUP ---
+    function setupEvents() {
+      function resizeAll() {
+        const wrap = document.getElementById('map-canvas-wrap');
+        mapCanvas.width = wrap.clientWidth;
+        mapCanvas.height = wrap.clientHeight;
+
+        sparkCanvas.width = sparkCanvas.parentElement.clientWidth;
+        sparkCanvas.height = sparkCanvas.parentElement.clientHeight;
+
+        kinCanvas.width = kinCanvas.parentElement.clientWidth;
+        kinCanvas.height = kinCanvas.parentElement.clientHeight;
+
+        kymoRefCanvas.width = kymoRefCanvas.parentElement.clientWidth;
+        kymoRefCanvas.height = kymoRefCanvas.parentElement.clientHeight;
+
+        refreshAllUI();
+      }
+      window.addEventListener('resize', resizeAll);
+      setTimeout(resizeAll, 60);
+
+      // Map Canvas Mouse Move
+      mapCanvas.addEventListener('mousemove', (e) => {
+        if (!state.exp) return;
+        const rect = mapCanvas.getBoundingClientRect();
+        const mx = e.clientX - rect.left;
+        const my = e.clientY - rect.top;
+
+        if (state.isPanning) {
+          state.panX = mx - state.dragStart.x;
+          state.panY = my - state.dragStart.y;
+          renderMapView();
+          return;
+        }
+
+        const w = screenToMapWorld(mx, my);
+        if (state.draggedVertex) {
+          state.draggedVertex[0] = Number(w.x_mm.toFixed(1));
+          state.draggedVertex[1] = Number(w.y_mm.toFixed(1));
+          refreshAllUI();
+          return;
+        }
+
+        const srVal = sampleMapValue('SR', state.currentFrameIdx, w.x_mm, w.y_mm);
+        const vgVal = sampleMapValue('VG', state.currentFrameIdx, w.x_mm, w.y_mm);
+        document.getElementById('hud-xy').textContent = `${w.x_mm.toFixed(1)}, ${w.y_mm.toFixed(1)} mm`;
+        document.getElementById('hud-val').textContent = `${srVal.toFixed(3)} / ${vgVal.toFixed(3)}`;
+      });
+
+      // Map Canvas Mouse Down
+      mapCanvas.addEventListener('mousedown', (e) => {
+        if (!state.exp) return;
+        const rect = mapCanvas.getBoundingClientRect();
+        const mx = e.clientX - rect.left;
+        const my = e.clientY - rect.top;
+
+        if (e.button === 1 || state.activeTool === 'panzoom') {
+          state.isPanning = true;
+          state.dragStart = { x: mx - state.panX, y: my - state.panY };
+          return;
+        }
+
+        const w = screenToMapWorld(mx, my);
+        const actF = getActiveFault();
+
+        // Check if clicking near an existing vertex at the current frame to drag or Alt-delete
+        if (actF && actF.keyframes) {
+          const curKf = actF.keyframes.find(k => k.active_frame === state.currentFrameIdx);
+          if (curKf && curKf.pts) {
+            const plotRects = getMapPlotRects();
+            for (let pIdx = 0; pIdx < curKf.pts.length; pIdx++) {
+              const s = mapWorldToScreen(curKf.pts[pIdx][0], curKf.pts[pIdx][1], plotRects[0]);
+              if (Math.hypot(s.x - mx, s.y - my) <= 9) {
+                if (e.altKey) {
+                  curKf.pts.splice(pIdx, 1);
+                  refreshAllUI();
+                } else {
+                  state.draggedVertex = curKf.pts[pIdx];
+                }
+                return;
+              }
+            }
+          }
+        }
+
+        if (state.activeTool === 'autotrack-onset') {
+          runTwoPointStrikeAutoTrack(w.x_mm, w.y_mm, 'onset');
+        } else if (state.activeTool === 'autotrack-breach') {
+          runTwoPointStrikeAutoTrack(w.x_mm, w.y_mm, 'breach');
+        } else if (state.activeTool === 'autotrack') {
+          runMapStrikeAutoTrack(w.x_mm, w.y_mm);
+        } else if (state.activeTool === 'guidesnap') {
+          if (!state.guidedSeedA) {
+            state.guidedSeedA = w;
+            setStatus('⚡ Seed A placed on Map View! Now click Seed B along the fault strike to snap.');
+            renderMapView();
+          } else {
+            runMapGuidedDijkstraSnap(state.guidedSeedA, w);
+            state.guidedSeedA = null;
+          }
+        } else if (state.activeTool === 'manual') {
+          const f = getOrCreateActiveFault(w.x_mm, w.y_mm);
+          if (!f || f.locked) return;
+          let curKf = f.keyframes.find(k => k.active_frame === state.currentFrameIdx);
+          if (!curKf) {
+            recordFaultKeyframeAtCurrentFrame(f, state.activeStage, [[Number(w.x_mm.toFixed(1)), Number(w.y_mm.toFixed(1))]]);
+          } else {
+            curKf.pts.push([Number(w.x_mm.toFixed(1)), Number(w.y_mm.toFixed(1))]);
+            curKf.pts.sort((a, b) => a[1] - b[1]);
+            refreshAllUI();
+          }
+        }
+      });
+
+      window.addEventListener('mouseup', () => {
+        state.isPanning = false;
+        state.draggedVertex = null;
+      });
+
+      // Map Canvas Wheel Zoom
+      mapCanvas.addEventListener('wheel', (e) => {
+        e.preventDefault();
+        const factor = e.deltaY < 0 ? 1.15 : 0.87;
+        state.zoom = Math.max(0.6, Math.min(6.0, state.zoom * factor));
+        renderMapView();
+      }, { passive: false });
+
+      // Sparkline Click / Scrub
+      sparkCanvas.addEventListener('mousedown', (e) => {
+        const scrub = (ev) => {
+          const r = sparkCanvas.getBoundingClientRect();
+          const frac = Math.max(0, Math.min(1, (ev.clientX - r.left) / r.width));
+          state.currentFrameIdx = Math.round(frac * (state.exp.active_frames - 1));
+          refreshAllUI();
+        };
+        scrub(e);
+        const onMove = (ev) => { if (ev.buttons === 1) scrub(ev); };
+        const onUp = () => {
+          window.removeEventListener('mousemove', onMove);
+          window.removeEventListener('mouseup', onUp);
+        };
+        window.addEventListener('mousemove', onMove);
+        window.addEventListener('mouseup', onUp);
+      });
+
+      // Kinematics Plot Click to Jump Frame
+      kinCanvas.addEventListener('click', (e) => {
+        const r = kinCanvas.getBoundingClientRect();
+        const m = { left: 36, right: 14 };
+        const frac = Math.max(0, Math.min(1, (e.clientX - r.left - m.left) / (r.width - m.left - m.right)));
+        const targetStrain = frac * state.exp.total_strain_pct;
+        let bestIdx = 0, minDiff = Infinity;
+        state.exp.strains.forEach((s, idx) => {
+          if (Math.abs(s - targetStrain) < minDiff) { minDiff = Math.abs(s - targetStrain); bestIdx = idx; }
+        });
+        state.currentFrameIdx = bestIdx;
+        refreshAllUI();
+      });
+
+      // Kymograph Reference Click to Jump Frame
+      kymoRefCanvas.addEventListener('click', (e) => {
+        const r = kymoRefCanvas.getBoundingClientRect();
+        const m = { top: 8, bottom: 20 };
+        const frac = 1.0 - Math.max(0, Math.min(1, (e.clientY - r.top - m.top) / (r.height - m.top - m.bottom)));
+        const targetStrain = frac * state.exp.total_strain_pct;
+        let bestIdx = 0, minDiff = Infinity;
+        state.exp.strains.forEach((s, idx) => {
+          if (Math.abs(s - targetStrain) < minDiff) { minDiff = Math.abs(s - targetStrain); bestIdx = idx; }
+        });
+        state.currentFrameIdx = bestIdx;
+        refreshAllUI();
+      });
+
+      // Top & Secondary Controls
+      document.getElementById('sel-experiment').addEventListener('change', (e) => loadExperiment(e.target.value));
+
+      document.querySelectorAll('.view-tab').forEach(btn => {
+        btn.addEventListener('click', () => {
+          document.querySelectorAll('.view-tab').forEach(b => {
+            b.className = 'view-tab px-2.5 py-0.5 text-xs font-bold rounded text-slate-400 hover:text-white transition';
+          });
+          btn.className = 'view-tab px-2.5 py-0.5 text-xs font-bold rounded text-white bg-sky-600 transition';
+          state.viewMode = btn.dataset.view;
+          refreshAllUI();
+        });
+      });
+
+      document.getElementById('sel-colormap').addEventListener('change', (e) => {
+        state.colormapMode = e.target.value;
+        renderMapView();
+      });
+
+      document.getElementById('rng-threshold').addEventListener('input', (e) => {
+        state.threshold = parseFloat(e.target.value);
+        document.getElementById('txt-thresh-val').textContent = state.threshold.toFixed(3);
+        renderMapView();
+        renderSparkline();
+      });
+
+      document.getElementById('chk-mask-thresh').addEventListener('change', (e) => {
+        state.maskThreshold = e.target.checked;
+        renderMapView();
+      });
+
+      document.getElementById('chk-show-transects').addEventListener('change', (e) => {
+        state.showTransects = e.target.checked;
+        renderMapView();
+      });
+
+      document.getElementById('inp-corridor').addEventListener('change', (e) => {
+        state.corridorMm = parseFloat(e.target.value) || 8.0;
+      });
+
+      // Tool buttons
+      const toolMap = {
+        'tool-autotrack': 'autotrack',
+        'tool-guidesnap': 'guidesnap',
+        'tool-manual': 'manual',
+        'tool-panzoom': 'panzoom'
+      };
+      Object.entries(toolMap).forEach(([id, tKey]) => {
+        document.getElementById(id).addEventListener('click', () => {
+          state.activeTool = tKey;
+          state.guidedSeedA = null;
+          document.querySelectorAll('.tool-btn').forEach(b => b.classList.remove('active'));
+          document.getElementById(id).classList.add('active');
+        });
+      });
+
+      // Dedicated 2-Point Deteksi Awal (⭐) & Deteksi Final (🏁) Handlers
+      const setDeteksiMode = (targetStage) => {
+        const exp = state.exp;
+        if (!exp) return;
+        const f = getOrCreateActiveFault();
+        if (!f || f.locked) return;
+
+        state.activeTool = (targetStage === 'onset') ? 'autotrack-onset' : 'autotrack-breach';
+        state.activeStage = targetStage;
+        state.guidedSeedA = null;
+
+        document.querySelectorAll('.tool-btn').forEach(b => b.classList.remove('active'));
+        const btnId = (targetStage === 'onset') ? 'btn-detect-onset' : 'btn-detect-breach';
+        document.getElementById(btnId)?.classList.add('active');
+
+        // Check if active fault ALREADY has a polyline pick on this frame
+        const curKf = f.keyframes ? f.keyframes.find(k => k.active_frame === state.currentFrameIdx) : null;
+        if (curKf && curKf.pts && curKf.pts.length >= 2) {
+          f.keyframes = f.keyframes.filter(k => k.stage !== targetStage);
+          curKf.stage = targetStage;
+          curKf.label = (targetStage === 'onset')
+            ? `Deteksi Awal / Onset (Fr ${exp.photo_frames[state.currentFrameIdx]})`
+            : `Deteksi Final / Breach (Fr ${exp.photo_frames[state.currentFrameIdx]})`;
+          f.keyframes.sort((a, b) => a.active_frame - b.active_frame);
+          const interp = interpolateBetweenOnsetAndBreach(f);
+          const icon = (targetStage === 'onset') ? '⭐' : '🏁';
+          const stageName = (targetStage === 'onset') ? 'DETEKSI AWAL' : 'DETEKSI FINAL';
+          if (interp) {
+            setStatus(`✨ Sukses! ${f.id} berhasil diinterpolasi dari Awal (Fr #${exp.photo_frames[interp.t0]}) ke Final (Fr #${exp.photo_frames[interp.t1]})! Δε = ${interp.deltaEps.toFixed(2)}%, V_lat = ${interp.vLatCmMin.toFixed(1)} cm/min.`);
+          } else {
+            setStatus(`${icon} Frame #${exp.photo_frames[state.currentFrameIdx]} ditetapkan sebagai ${stageName} untuk ${f.id}!`);
+          }
+          refreshAllUI();
+          return;
+        }
+
+        const icon = (targetStage === 'onset') ? '⭐' : '🏁';
+        const hotkey = (targetStage === 'onset') ? 'A' : 'F';
+        const stageName = (targetStage === 'onset') ? 'DETEKSI AWAL (Inception)' : 'DETEKSI FINAL (Full Breach)';
+        setStatus(`${icon} Mode ${stageName} aktif [Hotkey: ${hotkey}]: Klik pada pita sesar di Map View untuk auto-track titik ${targetStage === 'onset' ? 'awal' : 'akhir'} pada Frame #${exp.photo_frames[state.currentFrameIdx]}.`);
+      };
+
+      document.getElementById('btn-detect-onset')?.addEventListener('click', () => setDeteksiMode('onset'));
+      document.getElementById('btn-detect-breach')?.addEventListener('click', () => setDeteksiMode('breach'));
+
+      // Stage buttons
+      document.querySelectorAll('.stage-btn').forEach(btn => {
+        btn.addEventListener('click', () => {
+          state.activeStage = btn.dataset.stage;
+          updateStageButtons();
+        });
+      });
+
+      // Snap Crest & Smooth
+      document.getElementById('btn-snap-peak').addEventListener('click', () => {
+        const f = getActiveFault();
+        if (!f || !f.keyframes) return;
+        const kf = f.keyframes.find(k => k.active_frame === state.currentFrameIdx);
+        if (!kf || !kf.pts) return;
+        const exp = state.exp;
+        const proxy = (state.viewMode === 'VG') ? 'VG' : 'SR';
+        const vol = (proxy === 'VG') ? state.vgVol : state.srVol;
+        const fOff = state.currentFrameIdx * exp.map_h * exp.map_w;
+        const halfC = Math.max(3, Math.round((state.corridorMm / exp.x_max_mm) * exp.map_w));
+
+        kf.pts.forEach(pt => {
+          const c = (pt[0] / exp.x_max_mm) * (exp.map_w - 1);
+          const r = Math.max(0, Math.min(exp.map_h - 1, Math.round(((pt[1] - exp.y_min_mm) / (exp.y_max_mm - exp.y_min_mm)) * (exp.map_h - 1))));
+          const snap = snapXColAtRow(vol, fOff, r, c, halfC);
+          pt[0] = Number(((snap.col / (exp.map_w - 1)) * exp.x_max_mm).toFixed(1));
+        });
+        refreshAllUI();
+        setStatus(`🧲 Snapped vertices of ${f.id} to local ${proxy} crest!`);
+      });
+
+      document.getElementById('btn-smooth-trace').addEventListener('click', () => {
+        const f = getActiveFault();
+        if (!f || !f.keyframes) return;
+        const kf = f.keyframes.find(k => k.active_frame === state.currentFrameIdx);
+        if (!kf || !kf.pts || kf.pts.length < 3) return;
+        for (let i = 1; i < kf.pts.length - 1; i++) {
+          kf.pts[i][0] = Number(((kf.pts[i - 1][0] + kf.pts[i][0] + kf.pts[i + 1][0]) / 3.0).toFixed(1));
+        }
+        refreshAllUI();
+      });
+
+      document.getElementById('btn-autodetect-lifecycle').addEventListener('click', autoScanFaultTiming);
+
+      document.getElementById('btn-reset-view').addEventListener('click', () => {
+        state.zoom = 1.0; state.panX = 0; state.panY = 0; renderMapView();
+      });
+
+      // Timeline Player Controls
+      const stepFrame = (delta) => {
+        if (!state.exp) return;
+        state.currentFrameIdx = Math.max(0, Math.min(state.exp.active_frames - 1, state.currentFrameIdx + delta));
+        refreshAllUI();
+      };
+      document.getElementById('btn-frame-first').addEventListener('click', () => { state.currentFrameIdx = 0; refreshAllUI(); });
+      document.getElementById('btn-frame-last').addEventListener('click', () => { state.currentFrameIdx = state.exp.active_frames - 1; refreshAllUI(); });
+      document.getElementById('btn-frame-prev').addEventListener('click', () => stepFrame(-1));
+      document.getElementById('btn-frame-next').addEventListener('click', () => stepFrame(1));
+      document.getElementById('btn-frame-prev10').addEventListener('click', () => stepFrame(-10));
+      document.getElementById('btn-frame-next10').addEventListener('click', () => stepFrame(10));
+
+      document.getElementById('rng-frame').addEventListener('input', (e) => {
+        state.currentFrameIdx = parseInt(e.target.value, 10);
+        refreshAllUI();
+      });
+
+      document.getElementById('btn-jump-photo').addEventListener('click', () => {
+        const targetPhoto = parseInt(document.getElementById('inp-jump-photo').value, 10);
+        if (!state.exp || isNaN(targetPhoto)) return;
+        let bestIdx = 0, minDiff = Infinity;
+        state.exp.photo_frames.forEach((pf, idx) => {
+          if (Math.abs(pf - targetPhoto) < minDiff) { minDiff = Math.abs(pf - targetPhoto); bestIdx = idx; }
+        });
+        state.currentFrameIdx = bestIdx;
+        refreshAllUI();
+      });
+
+      const togglePlay = () => {
+        state.isPlaying = !state.isPlaying;
+        document.getElementById('txt-play-icon').textContent = state.isPlaying ? '⏸' : '▶';
+        document.getElementById('txt-play-label').textContent = state.isPlaying ? 'Pause' : 'Play';
+        if (state.playTimer) clearInterval(state.playTimer);
+        if (state.isPlaying) {
+          const fps = parseInt(document.getElementById('sel-fps').value, 10) || 10;
+          state.playTimer = setInterval(() => {
+            if (state.currentFrameIdx >= state.exp.active_frames - 1) {
+              state.currentFrameIdx = 0;
+            } else {
+              state.currentFrameIdx++;
+            }
+            refreshAllUI();
+          }, Math.round(1000 / fps));
+        }
+      };
+      document.getElementById('btn-play-pause').addEventListener('click', togglePlay);
+
+      // Top Header Benchmark & Clear Session buttons
+      document.getElementById('btn-load-benchmark')?.addEventListener('click', loadBenchmarkFaults);
+      document.getElementById('btn-clear-all-faults')?.addEventListener('click', clearAllFaults);
+
+      // Progressive Furthest Edge Detection Buttons
+      document.getElementById('btn-detect-furthest')?.addEventListener('click', () => {
+        detectToFurthestEdges(state.currentFrameIdx);
+      });
+      document.getElementById('btn-next-detect')?.addEventListener('click', () => {
+        if (!state.exp) return;
+        state.currentFrameIdx = Math.min(state.exp.active_frames - 1, state.currentFrameIdx + 1);
+        detectToFurthestEdges(state.currentFrameIdx);
+      });
+
+      // Ghost Continuity Toggle
+      document.getElementById('chk-show-ghost')?.addEventListener('change', (e) => {
+        state.showGhostTrace = e.target.checked;
+        renderMapView();
+      });
+
+      // Fault Selector Dropdown & Quick Add
+      document.getElementById('sel-active-fault')?.addEventListener('change', (e) => {
+        if (!e.target.value) return;
+        state.activeFaultId = e.target.value;
+        const f = getActiveFault();
+        if (f && f.keyframes && f.keyframes.length > 0) {
+          state.currentFrameIdx = f.keyframes[0].active_frame;
+        }
+        refreshAllUI();
+      });
+
+      const addNewFault = () => {
+        const nextNum = state.faults.length + 1;
+        const colors = ['#ef4444', '#f97316', '#eab308', '#10b981', '#06b6d4', '#6366f1', '#ec4899', '#a855f7'];
+        const newF = {
+          id: `F${nextNum}`,
+          name: `Thrust Fault ${nextNum} (F${nextNum})`,
+          color: colors[(nextNum - 1) % colors.length],
+          visible: true,
+          locked: false,
+          corridor: [150, 250],
+          keyframes: []
+        };
+        state.faults.push(newF);
+        state.activeFaultId = newF.id;
+        refreshAllUI();
+        setStatus(`✨ Sesar baru ${newF.id} ditambahkan. Silakan klik pita sesar di Map View.`);
+      };
+      document.getElementById('btn-quick-add-fault')?.addEventListener('click', addNewFault);
+      document.getElementById('btn-add-fault')?.addEventListener('click', addNewFault);
+
+      // Fault Inspector Controls
+      document.getElementById('inp-active-fault-color').addEventListener('input', (e) => {
+        const f = getActiveFault();
+        if (f) { f.color = e.target.value; refreshAllUI(); }
+      });
+      document.getElementById('inp-active-fault-name').addEventListener('change', (e) => {
+        const f = getActiveFault();
+        if (f) { f.name = e.target.value; refreshAllUI(); }
+      });
+      document.getElementById('btn-clear-current-frame-pick').addEventListener('click', () => {
+        const f = getActiveFault();
+        if (f && f.keyframes) {
+          f.keyframes = f.keyframes.filter(k => k.active_frame !== state.currentFrameIdx);
+          refreshAllUI();
+        }
+      });
+
+      // Table Collapse
+      document.getElementById('btn-toggle-table').addEventListener('click', () => {
+        const wrap = document.getElementById('table-wrap');
+        const chev = document.getElementById('txt-table-chevron');
+        wrap.classList.toggle('hidden');
+        chev.textContent = wrap.classList.contains('hidden') ? '▲' : '▼';
+      });
+
+      // Save / Load / Export
+      document.getElementById('btn-save-json').addEventListener('click', () => {
+        const payload = {
+          version: 'GRAIN_2.1_MAPVIEW_FSR_TRACKER',
+          experiment_id: state.expId,
+          threshold: state.threshold,
+          faults: state.faults
+        };
+        const blob = new Blob([JSON.stringify(payload, null, 2)], { type: 'application/json' });
+        const a = document.createElement('a');
+        a.href = URL.createObjectURL(blob);
+        a.download = `MapView_FSR_Picks_${state.expId}.json`;
+        a.click();
+      });
+
+      document.getElementById('btn-load-json').addEventListener('click', () => {
+        document.getElementById('inp-load-json').click();
+      });
+      document.getElementById('inp-load-json').addEventListener('change', (e) => {
+        const file = e.target.files[0];
+        if (!file) return;
+        const r = new FileReader();
+        r.onload = (ev) => {
+          try {
+            const d = JSON.parse(ev.target.result);
+            if (d.experiment_id && d.experiment_id !== state.expId) {
+              document.getElementById('sel-experiment').value = d.experiment_id;
+              loadExperiment(d.experiment_id);
+            }
+            if (d.faults) state.faults = d.faults;
+            if (state.faults.length > 0) state.activeFaultId = state.faults[0].id;
+            refreshAllUI();
+          } catch (err) { alert('Invalid JSON: ' + err.message); }
+        };
+        r.readAsText(file);
+      });
+
+      document.getElementById('btn-export-csv').addEventListener('click', () => {
+        let csv = 'fault_id,fault_name,onset_photo_frame,onset_active_frame,inception_strain_pct,onset_x_mm,onset_ymin_mm,onset_ymax_mm,breach_photo_frame,breach_active_frame,full_rupture_strain_pct,delta_strain_rupture_pct,required_disp_mm,active_span_y_mm,v_lat_mms,v_lat_cmmin\n';
+        state.faults.forEach(f => {
+          const k = computeFaultKinematics(f);
+          if (!k) return;
+          csv += `${f.id},"${f.name}",${k.kfOnset.photo_frame},${k.kfOnset.active_frame},${k.kfOnset.strain_pct.toFixed(2)},${k.gOnset.xMean.toFixed(1)},${k.gOnset.yMin.toFixed(1)},${k.gOnset.yMax.toFixed(1)},${k.kfBreach.photo_frame},${k.kfBreach.active_frame},${k.kfBreach.strain_pct.toFixed(2)},${k.deltaEps.toFixed(2)},${k.deltaDispMm.toFixed(2)},${k.gBreach.spanY.toFixed(1)},${k.vLatMms.toFixed(3)},${k.vLatCmMin.toFixed(2)}\n`;
+        });
+        const blob = new Blob([csv], { type: 'text/csv' });
+        const a = document.createElement('a');
+        a.href = URL.createObjectURL(blob);
+        a.download = `MapView_FSR_Kinematics_${state.expId}.csv`;
+        a.click();
+      });
+
+      document.getElementById('btn-export-png').addEventListener('click', () => {
+        const a = document.createElement('a');
+        a.href = mapCanvas.toDataURL('image/png');
+        a.download = `MapView_${state.expId}_Frame${state.exp.photo_frames[state.currentFrameIdx]}.png`;
+        a.click();
+      });
+
+      // Backward Retro-Tracking from mature fault
+      document.getElementById('btn-retro-track')?.addEventListener('click', () => {
+        runBackwardRetroTracking(getActiveFault(), state.currentFrameIdx);
+      });
+
+      // Keyboard Shortcuts
+      window.addEventListener('keydown', (e) => {
+        if (e.target.tagName === 'INPUT' || e.target.tagName === 'SELECT') return;
+        if (e.key === 'ArrowLeft') { e.preventDefault(); stepFrame(e.shiftKey ? -10 : -1); }
+        else if (e.key === 'ArrowRight') { e.preventDefault(); stepFrame(e.shiftKey ? 10 : 1); }
+        else if (e.key === ' ') { e.preventDefault(); togglePlay(); }
+        else if (e.key === '1') document.getElementById('tool-autotrack').click();
+        else if (e.key === '2') document.getElementById('tool-guidesnap').click();
+        else if (e.key === '3') document.getElementById('tool-manual').click();
+        else if (e.key === '4') document.getElementById('tool-panzoom').click();
+        else if (e.key === 'z' || e.key === 'Z') document.getElementById('btn-snap-peak').click();
+        else if (e.key === 'a' || e.key === 'A') document.getElementById('btn-detect-onset')?.click();
+        else if (e.key === 'f' || e.key === 'F') document.getElementById('btn-detect-breach')?.click();
+        else if (e.key === 'd' || e.key === 'D') document.getElementById('btn-detect-furthest')?.click();
+        else if (e.key === 'n' || e.key === 'N') document.getElementById('btn-next-detect')?.click();
+        else if (e.key === 'b' || e.key === 'B') document.getElementById('btn-retro-track')?.click();
+        else if (e.key === 'r' || e.key === 'R') document.getElementById('btn-reset-view').click();
+      });
+    }
+
+    window.addEventListener('DOMContentLoaded', () => {
+      setupEvents();
+      loadExperiment('EXP_3');
+    });
+  </script>
+</body>
+</html>

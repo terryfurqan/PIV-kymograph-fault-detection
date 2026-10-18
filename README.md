@@ -66,3 +66,26 @@ render_TKS5_6_verification_jpgs();
 
 ### 4. Kymograph Spasial Sejajar Citra pada `Y = 710 px` (`L05` — `TKS-5_cm-1`)
 ![TKS-5_cm-1 Spatial Kymograph Y710px](examples/TKS-5_cm-1_Kymo_Spasial_Y710px_Sejajar_Citra.jpg)
+
+---
+
+## ⚡ FSR Analyzer — 2D Map-View Seismic-Style Fault Auto-Tracker
+
+Aplikasi web interaktif mandiri (*standalone HTML5*) untuk interpretasi dan pelacakan numerik pembentukan rekahan permukaan sesar (*Fault Surface Rupture* / FSR) berbasis analogi *seismic horizon auto-tracking* pada tampilan atas (*Map View*):
+
+1. **Auto-Tracking 2-Titik (Deteksi Awal & Final)**:
+   - `[⭐ Deteksi Awal]` (Hotkey: `A`): 1-klik untuk merekam inisiasi/nukleasi sesar (*onset*).
+   - `[🏁 Deteksi Final]` (Hotkey: `F`): 1-klik untuk merekam sesar tembus penuh (*full breach*).
+2. **Pencarian Puncak Sub-Pixel Fisik Antar-Frame**:
+   - Secara otomatis mendeteksi igir puncak strain rate ($e_{xx}$ / $|\nabla V|$) pada setiap frame perantara $t \in [t_{onset}, t_{breach}]$ dalam koridor strike sesar (bukan sekadar peregangan linear sintetis).
+3. **Analisis Kinematika & Plot Propagasi Lateral**:
+   - Memplot kurva dinamika span lateral $Y_{min}(t) \to Y_{max}(t)$ terhadap regangan kumulatif $\varepsilon$ (Plot A).
+   - Menghitung kecepatan propagasi lateral ($V_{\text{lat}}$ dalam cm/min dan mm/s) serta ambang regangan kritis pembentukan rekahan ($\Delta\varepsilon_{\text{rupture}}$).
+4. **Overlay Multi-Layer Interaktif**:
+   - Kontrol transparansi mulus antara citra foto asli (top-down DSLR nadir) dan kontur proksi regangan (SR / VG / Dual Map View).
+
+### Cara Menjalankan FSR Analyzer:
+```bash
+python3 launch_fsr_analyzer.py --port 8089
+```
+Akses di peramban: `http://localhost:8089/FSR_Analyzer.html` (atau buka berkas `FSR_Analyzer.html` secara langsung tanpa server).

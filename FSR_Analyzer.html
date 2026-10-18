@@ -133,6 +133,12 @@
         <span>40 Lines</span>
       </label>
 
+      <!-- Orientation Flip Toggle: Pusher Left-to-Right -->
+      <button id="btn-toggle-flip" class="flex items-center space-x-1.5 text-sky-200 bg-sky-950/80 hover:bg-sky-900 px-2.5 py-1 rounded border border-sky-600 cursor-pointer font-bold text-xs transition shadow-sm" title="Orientasi Tampilan: Dinding Pendorong bergerak dari Kiri ke Kanan [Hotkey: H]">
+        <span>🔁</span>
+        <span id="txt-flip-label">Dorongan: Kiri ➔ Kanan</span>
+      </button>
+
       <!-- Save / Load / Export -->
       <div class="flex items-center space-x-1 pl-2 border-l border-slate-700">
         <button id="btn-load-benchmark" class="px-2 py-1 font-semibold rounded bg-amber-950/70 hover:bg-amber-900 text-amber-300 border border-amber-700 transition" title="Muat Contoh Benchmark Default (F1–F8) untuk Referensi">
@@ -627,6 +633,7 @@
       maskThreshold: false,
       showTransects: true,
       showGhostTrace: true,  // Toggle ghost continuity line from prior frame
+      flipHorizontal: true,  // Default: Pusher on LEFT moving to RIGHT (standard sandbox convention)
       corridorMm: 8.0,
 
       activeTool: 'autotrack', // 'autotrack', 'guidesnap', 'manual', 'panzoom', 'eraser'
@@ -2083,7 +2090,9 @@
 
     function mapWorldToScreen(x_mm, y_mm, rect) {
       const exp = state.exp;
-      const nx = x_mm / exp.x_max_mm;
+      const nx = state.flipHorizontal
+        ? (exp.x_max_mm - x_mm) / exp.x_max_mm
+        : (x_mm / exp.x_max_mm);
       // Y=y_min_mm at bottom, Y=y_max_mm at top (matches Nadir Map View)
       const ny = (y_mm - exp.y_min_mm) / (exp.y_max_mm - exp.y_min_mm);
       const rawX = rect.x + nx * rect.w;
@@ -2113,8 +2122,12 @@
       const nx = Math.max(0, Math.min(1, (unX - activeRect.x) / activeRect.w));
       const ny = Math.max(0, Math.min(1, 1.0 - (unY - activeRect.y) / activeRect.h));
 
+      const x_mm = state.flipHorizontal
+        ? (1.0 - nx) * exp.x_max_mm
+        : nx * exp.x_max_mm;
+
       return {
-        x_mm: nx * exp.x_max_mm,
+        x_mm,
         y_mm: exp.y_min_mm + ny * (exp.y_max_mm - exp.y_min_mm),
         proxy: activeRect.proxy
       };
@@ -2147,8 +2160,9 @@
           const srcOff = fOffset + r * exp.map_w;
           const dstOff = dispRow * exp.map_w * 4;
           for (let c = 0; c < exp.map_w; c++) {
+            const dispCol = state.flipHorizontal ? ((exp.map_w - 1) - c) : c;
             const u8 = vol[srcOff + c];
-            const p = dstOff + c * 4;
+            const p = dstOff + dispCol * 4;
             if (state.maskThreshold && u8 >= threshU8) {
               // Highlight contour >= Threshold T
               dst[p] = 56; dst[p + 1] = 235; dst[p + 2] = 248; dst[p + 3] = 255;
@@ -2163,8 +2177,14 @@
         }
         offscreenCtx.putImageData(imgData, 0, 0);
 
-        const tl = mapWorldToScreen(0, exp.y_max_mm, rect);
-        const br = mapWorldToScreen(exp.x_max_mm, exp.y_min_mm, rect);
+        const pLeftTop = mapWorldToScreen(state.flipHorizontal ? exp.x_max_mm : 0, exp.y_max_mm, rect);
+        const pRightBot = mapWorldToScreen(state.flipHorizontal ? 0 : exp.x_max_mm, exp.y_min_mm, rect);
+        const drawX = Math.min(pLeftTop.x, pRightBot.x);
+        const drawY = Math.min(pLeftTop.y, pRightBot.y);
+        const drawW = Math.abs(pRightBot.x - pLeftTop.x);
+        const drawH = Math.abs(pRightBot.y - pLeftTop.y);
+        const tl = { x: drawX, y: drawY };
+        const br = { x: drawX + drawW, y: drawY + drawH };
 
         mapCtx.save();
         mapCtx.imageSmoothingEnabled = true;
@@ -2182,8 +2202,8 @@
           mapCtx.lineWidth = 0.7;
           for (let i = 0; i < 40; i++) {
             const yl = exp.y_min_mm + (i / 39.0) * (exp.y_max_mm - exp.y_min_mm);
-            const pL = mapWorldToScreen(0, yl, rect);
-            const pR = mapWorldToScreen(exp.x_max_mm, yl, rect);
+            const pL = mapWorldToScreen(state.flipHorizontal ? exp.x_max_mm : 0, yl, rect);
+            const pR = mapWorldToScreen(state.flipHorizontal ? 0 : exp.x_max_mm, yl, rect);
             mapCtx.beginPath();
             mapCtx.moveTo(pL.x, pL.y);
             mapCtx.lineTo(pR.x, pR.y);
@@ -2464,7 +2484,10 @@
           const p = mapWorldToScreen(x, exp.y_min_mm, rect);
           mapCtx.fillText(`${x}`, p.x, br.y + 14);
         }
-        mapCtx.fillText('Tectonic Transport Distance X (mm) [Foreland 0 mm ← Pusher 450 mm]', (tl.x + br.x) / 2, br.y + 28);
+        const axisLabel = state.flipHorizontal
+          ? `Tectonic Transport Distance X (mm) [Pusher ${exp.x_max_mm} mm ➔ Foreland 0 mm | Dorongan Kiri ➔ Kanan]`
+          : `Tectonic Transport Distance X (mm) [Foreland 0 mm ← Pusher ${exp.x_max_mm} mm]`;
+        mapCtx.fillText(axisLabel, (tl.x + br.x) / 2, br.y + 28);
 
         mapCtx.textAlign = 'right';
         for (let y = 50; y <= 350; y += 50) {
@@ -2773,8 +2796,45 @@
 
       const img = (state.viewMode === 'VG' && state.kymoRefImgVG) ? state.kymoRefImgVG : state.kymoRefImgSR;
       if (img) {
-        kymoRefCtx.drawImage(img, m.left, m.top, pw, ph);
+        if (state.flipHorizontal) {
+          kymoRefCtx.save();
+          kymoRefCtx.translate(m.left + pw, m.top);
+          kymoRefCtx.scale(-1, 1);
+          kymoRefCtx.drawImage(img, 0, 0, pw, ph);
+          kymoRefCtx.restore();
+        } else {
+          kymoRefCtx.drawImage(img, m.left, m.top, pw, ph);
+        }
       }
+
+      // Draw bottom X labels / ticks:
+      kymoRefCtx.fillStyle = '#94a3b8';
+      kymoRefCtx.font = '9px monospace';
+      kymoRefCtx.textAlign = 'center';
+      const xTicks = [0, 150, 300, 450];
+      xTicks.forEach(tx => {
+        if (tx <= exp.x_max_mm) {
+          const xPos = state.flipHorizontal
+            ? m.left + ((exp.x_max_mm - tx) / exp.x_max_mm) * pw
+            : m.left + (tx / exp.x_max_mm) * pw;
+          kymoRefCtx.fillText(tx.toString(), xPos, h - 5);
+          kymoRefCtx.strokeStyle = '#475569';
+          kymoRefCtx.lineWidth = 1;
+          kymoRefCtx.beginPath();
+          kymoRefCtx.moveTo(xPos, m.top + ph);
+          kymoRefCtx.lineTo(xPos, m.top + ph + 3);
+          kymoRefCtx.stroke();
+        }
+      });
+
+      // Left Y-axis ticks for strain
+      kymoRefCtx.textAlign = 'right';
+      kymoRefCtx.fillStyle = '#94a3b8';
+      const yTicks = [0, Math.round(exp.total_strain_pct / 2), Math.round(exp.total_strain_pct)];
+      yTicks.forEach(st => {
+        const yPos = m.top + (1.0 - st / exp.total_strain_pct) * ph;
+        kymoRefCtx.fillText(`${st}%`, m.left - 4, yPos + 3);
+      });
 
       // Draw stars for fault keyframes
       state.faults.forEach(f => {
@@ -2782,7 +2842,9 @@
         f.keyframes.forEach(kf => {
           if (!kf.pts || kf.pts.length === 0) return;
           const meanX = kf.pts.reduce((a, p) => a + p[0], 0) / kf.pts.length;
-          const sx = m.left + (meanX / exp.x_max_mm) * pw;
+          const sx = state.flipHorizontal
+            ? m.left + ((exp.x_max_mm - meanX) / exp.x_max_mm) * pw
+            : m.left + (meanX / exp.x_max_mm) * pw;
           const sy = m.top + (1.0 - kf.strain_pct / exp.total_strain_pct) * ph;
           if (kf.stage === 'onset') drawStar(kymoRefCtx, sx, sy, 5, 6, 2.8, '#facc15', '#000');
         });
@@ -3624,6 +3686,31 @@
       };
       document.getElementById('btn-play-pause').addEventListener('click', togglePlay);
 
+      // Orientation Flip Toggle (Pusher Left-to-Right)
+      const toggleFlip = () => {
+        state.flipHorizontal = !state.flipHorizontal;
+        const lbl = document.getElementById('txt-flip-label');
+        if (lbl) {
+          lbl.textContent = state.flipHorizontal ? 'Dorongan: Kiri ➔ Kanan' : 'Dorongan: Kanan ➔ Kiri';
+        }
+        const btn = document.getElementById('btn-toggle-flip');
+        if (btn) {
+          if (state.flipHorizontal) {
+            btn.classList.add('bg-sky-950/80', 'text-sky-200', 'border-sky-600');
+            btn.classList.remove('bg-slate-800', 'text-slate-300', 'border-slate-700');
+          } else {
+            btn.classList.remove('bg-sky-950/80', 'text-sky-200', 'border-sky-600');
+            btn.classList.add('bg-slate-800', 'text-slate-300', 'border-slate-700');
+          }
+        }
+        renderMapView();
+        renderKymoRef();
+        setStatus(state.flipHorizontal
+          ? 'Orientasi tampilan: Dinding pendorong di KIRI (bergerak ke kanan ke arah foreland).'
+          : 'Orientasi tampilan standar: Dinding pendorong di KANAN (bergerak ke kiri).');
+      };
+      document.getElementById('btn-toggle-flip')?.addEventListener('click', toggleFlip);
+
       // Top Header Benchmark & Clear Session buttons
       document.getElementById('btn-load-benchmark')?.addEventListener('click', loadBenchmarkFaults);
       document.getElementById('btn-clear-all-faults')?.addEventListener('click', clearAllFaults);
@@ -3781,6 +3868,7 @@
         else if (e.key === 'd' || e.key === 'D') document.getElementById('btn-detect-furthest')?.click();
         else if (e.key === 'n' || e.key === 'N') document.getElementById('btn-next-detect')?.click();
         else if (e.key === 'b' || e.key === 'B') document.getElementById('btn-retro-track')?.click();
+        else if (e.key === 'h' || e.key === 'H') toggleFlip();
         else if (e.key === 'r' || e.key === 'R') document.getElementById('btn-reset-view').click();
       });
     }

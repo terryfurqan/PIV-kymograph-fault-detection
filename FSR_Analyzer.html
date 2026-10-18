@@ -45,6 +45,12 @@
       color: #fecdd3 !important;
       box-shadow: 0 0 12px rgba(244, 63, 94, 0.45) !important;
     }
+    #tool-eraser.active {
+      background: rgba(244, 63, 94, 0.35) !important;
+      border-color: #f43f5e !important;
+      color: #fecdd3 !important;
+      box-shadow: 0 0 12px rgba(244, 63, 94, 0.5) !important;
+    }
     .stage-btn.active {
       box-shadow: 0 0 8px rgba(250, 204, 21, 0.35);
       border-width: 1px;
@@ -182,6 +188,12 @@
         <span>🔍</span>
         <span>Pan / Zoom</span>
         <span class="text-[10px] bg-slate-700 text-slate-300 px-1 rounded">[4]</span>
+      </button>
+
+      <button id="tool-eraser" class="tool-btn px-2.5 py-1 rounded border border-rose-600/70 bg-rose-950/60 text-rose-200 font-semibold flex items-center gap-1.5 hover:bg-rose-900 hover:border-rose-400 transition" title="Hapus Titik (Eraser): Klik atau drag mouse di atas titik interpolasi / keyframe untuk menghapusnya [Key: 5 atau X]">
+        <span>✂️</span>
+        <span>Hapus Titik</span>
+        <span class="text-[10px] bg-rose-900 text-rose-200 px-1 rounded font-mono">[5]</span>
       </button>
 
       <!-- Fault Assignment Dropdown & Quick Add -->
@@ -430,6 +442,40 @@
             <div class="text-[10px] text-slate-400" id="card-vlat-mms">3.94 mm/s</div>
           </div>
         </div>
+
+        <!-- MODUL KOREKSI & PANGKAS TITIK SESAR (FRAME INI) -->
+        <div class="bg-slate-950/90 p-2 rounded-lg border border-rose-900/60 shadow-sm flex flex-col gap-1.5 mt-0.5">
+          <div class="flex items-center justify-between">
+            <span class="text-[11px] font-bold text-rose-300 flex items-center gap-1.5">
+              <span>✂️</span> Koreksi & Pangkas Titik (Frame Ini)
+            </span>
+            <span id="txt-pts-count-info" class="text-[10px] text-slate-400 font-mono">0 titik</span>
+          </div>
+
+          <div class="grid grid-cols-2 gap-1 text-[11px]">
+            <button id="btn-trim-bottom" class="px-2 py-1 rounded bg-rose-950/80 hover:bg-rose-900 text-rose-200 border border-rose-700/60 font-semibold transition flex items-center justify-center gap-1 shadow-sm" title="Pangkas 1 titik dari ujung bawah (-Y). Sangat berguna memotong cabang yang melompat ke sesar lain">
+              <span>✂️</span> Potong Bawah (-Y)
+            </button>
+            <button id="btn-trim-top" class="px-2 py-1 rounded bg-rose-950/80 hover:bg-rose-900 text-rose-200 border border-rose-700/60 font-semibold transition flex items-center justify-center gap-1 shadow-sm" title="Pangkas 1 titik dari ujung atas (+Y)">
+              <span>✂️</span> Potong Atas (+Y)
+            </button>
+            <button id="btn-auto-clean-jumps" class="px-2 py-1 rounded bg-amber-950/80 hover:bg-amber-900 text-amber-200 border border-amber-700/60 font-semibold transition flex items-center justify-center gap-1 shadow-sm" title="Deteksi otomatis diskontinuitas horizontal (|ΔX| > 15 mm) dan pangkas cabang sesar asing secara instan">
+              <span>🧹</span> Pangkas Lompatan (|ΔX|>15)
+            </button>
+            <button id="btn-clear-frame-trace" class="px-2 py-1 rounded bg-slate-800 hover:bg-rose-950 text-rose-300 border border-slate-700 font-semibold transition flex items-center justify-center gap-1" title="Hapus semua titik sesar pada frame ini">
+              <span>🗑️</span> Hapus Semua Titik
+            </button>
+          </div>
+
+          <div class="flex items-center justify-between text-[10px] pt-1 border-t border-slate-800/80">
+            <button id="btn-revert-interp" class="text-sky-400 hover:text-sky-300 font-semibold flex items-center gap-1 transition" title="Pulihkan kembali hasil deteksi puncak asli untuk frame ini">
+              <span>↩️</span> Reset Deteksi Puncak
+            </button>
+            <button id="btn-freeze-keyframe" class="text-emerald-400 hover:text-emerald-300 font-semibold flex items-center gap-1 transition" title="Bekukan titik hasil koreksi menjadi keyframe pick mandiri yang terkunci">
+              <span>💾</span> Bekukan Jadi Keyframe
+            </button>
+          </div>
+        </div>
       </div>
 
       <!-- 2. SYNCHRONIZED PLOT A: LATERAL PROPAGATION KINEMATICS (Y vs STRAIN / FRAME) -->
@@ -583,7 +629,7 @@
       showGhostTrace: true,  // Toggle ghost continuity line from prior frame
       corridorMm: 8.0,
 
-      activeTool: 'autotrack', // 'autotrack', 'guidesnap', 'manual', 'panzoom'
+      activeTool: 'autotrack', // 'autotrack', 'guidesnap', 'manual', 'panzoom', 'eraser'
       activeStage: 'onset',    // 'onset', 'growth', 'breach'
       activeFaultId: null,     // Clean session: no active fault initially
       faults: [],              // Clean session: start with empty catalog
@@ -607,8 +653,9 @@
       dragStart: { x: 0, y: 0 },
 
       // Interactive Vertex Editing & Guided Seed
-      hoveredVertex: null,     // { faultId, kfIdx, ptIdx }
+      hoveredVertex: null,     // { x, y, pt, isInterp, ptIdx }
       draggedVertex: null,
+      draggedIsInterp: false,
       guidedSeedA: null,       // { x_mm, y_mm }
     };
 
@@ -871,6 +918,56 @@
     }
 
     /**
+     * Filters candidate peak detections to retain only the contiguous strike segment
+     * that aligns with the fault guide trajectory, eliminating discontinuous branch jumps.
+     */
+    function filterContiguousFaultSegment(pts, frac, k0Pts, k1Pts, exp) {
+      if (!pts || pts.length < 3) return pts;
+      const sorted = [...pts].sort((a, b) => a[1] - b[1]);
+      const segments = [];
+      let curSeg = [sorted[0]];
+
+      for (let i = 1; i < sorted.length; i++) {
+        const prev = sorted[i - 1];
+        const curr = sorted[i];
+        const dx = Math.abs(curr[0] - prev[0]);
+        const dist = Math.hypot(curr[0] - prev[0], curr[1] - prev[1]);
+        if (dx > 14.0 || dist > 32.0) {
+          segments.push(curSeg);
+          curSeg = [curr];
+        } else {
+          curSeg.push(curr);
+        }
+      }
+      segments.push(curSeg);
+
+      if (segments.length <= 1) return sorted;
+
+      // Score each segment: prefer segments closest to the expected X guide
+      let bestSeg = segments[0];
+      let bestScore = -Infinity;
+
+      segments.forEach(seg => {
+        let segDistSum = 0;
+        seg.forEach(p => {
+          const x0 = getInterpolatedX(k0Pts, p[1]);
+          const x1 = getInterpolatedX(k1Pts, p[1]);
+          const xExpected = (1.0 - frac) * x0 + frac * x1;
+          segDistSum += Math.abs(p[0] - xExpected);
+        });
+        const meanDist = segDistSum / seg.length;
+        // Prioritize longer segments that are physically close to expected X
+        const score = seg.length * 8.0 - meanDist * 2.0;
+        if (score > bestScore) {
+          bestScore = score;
+          bestSeg = seg;
+        }
+      });
+
+      return bestSeg;
+    }
+
+    /**
      * Physical Peak-Detection Engine between Initial (Awal) and Final (Akhir) Frames:
      * Does NOT just perform a geometric linear resize. Instead, across every intermediate frame t
      * between t_onset and t_breach, searches for the actual physical ridge peak values (sub-pixel crest)
@@ -950,10 +1047,46 @@
           continue;
         }
 
+        // --- Check if user manually overrode/cleaned this frame! ---
+        if (fault.interpolated_overrides && fault.interpolated_overrides[t]) {
+          const customPts = fault.interpolated_overrides[t];
+          let curYMin = 0, curYMax = 0, curSpan = 0;
+          if (customPts.length >= 2) {
+            const ys = customPts.map(p => p[1]);
+            curYMin = Math.min(...ys);
+            curYMax = Math.max(...ys);
+            curSpan = Math.max(0.1, curYMax - curYMin);
+          } else if (customPts.length === 1) {
+            curYMin = customPts[0][1];
+            curYMax = customPts[0][1];
+            curSpan = 0;
+          }
+          envelope.push({
+            active_frame: t,
+            photo_frame: exp.photo_frames[t],
+            strain_pct: Number(exp.strains[t].toFixed(2)),
+            yMin: Number(curYMin.toFixed(1)),
+            yMax: Number(curYMax.toFixed(1)),
+            span: Number(curSpan.toFixed(1)),
+            is_peak: true,
+            is_manual: true
+          });
+          peakTraceMap[t] = customPts;
+          continue;
+        }
+
+        // Progressive expanding tip bounds between initial and final spans
+        const guideYMin = initialYMin + frac * (finalYMin - initialYMin);
+        const guideYMax = initialYMax + frac * (finalYMax - initialYMax);
+        const searchYMin = Math.max(exp.y_min_mm, Math.min(initialYMin, guideYMin) - 25);
+        const searchYMax = Math.min(exp.y_max_mm, Math.max(initialYMax, guideYMax) + 25);
+
         // --- Intermediate frame: DETECT ACTUAL PHYSICAL PEAKS ---
-        const detectedPts = [];
+        const rawDetectedPts = [];
         for (let r = 0; r < exp.map_h; r++) {
           const yVal = exp.y_min_mm + (r / (exp.map_h - 1)) * (exp.y_max_mm - exp.y_min_mm);
+          if (yVal < searchYMin || yVal > searchYMax) continue;
+
           const x0 = getInterpolatedX(k0.pts, yVal);
           const x1 = getInterpolatedX(k1.pts, yVal);
           const xGuide = (1.0 - frac) * x0 + frac * x1;
@@ -963,8 +1096,15 @@
           const snap = snapXColAtRow(vol, frameOffset, r, colGuide, halfCorrCols);
           if (snap.u8 >= threshU8) {
             const xPeak = (snap.col / (exp.map_w - 1)) * exp.x_max_mm;
-            detectedPts.push([Number(xPeak.toFixed(1)), Number(yVal.toFixed(1))]);
+            rawDetectedPts.push([Number(xPeak.toFixed(1)), Number(yVal.toFixed(1))]);
           }
+        }
+
+        // Apply spatial continuity filter: partition by |ΔX| > 14 mm,
+        // and retain only the segment best aligning with the fault trajectory
+        let detectedPts = rawDetectedPts;
+        if (rawDetectedPts.length >= 3) {
+          detectedPts = filterContiguousFaultSegment(rawDetectedPts, frac, k0.pts, k1.pts, exp);
         }
 
         let curYMin, curYMax;
@@ -977,8 +1117,6 @@
           finalFramePts = downsamplePolyline(detectedPts, Math.min(28, detectedPts.length));
         } else {
           // Low-activity fallback: smooth guide between anchors
-          const guideYMin = initialYMin + frac * (finalYMin - initialYMin);
-          const guideYMax = initialYMax + frac * (finalYMax - initialYMax);
           curYMin = guideYMin;
           curYMax = guideYMax;
 
@@ -1618,6 +1756,222 @@
       refreshAllUI();
     }
 
+    // --- INTERACTIVE POINT DELETION & MODULAR CORRECTION ENGINE ---
+
+    function getCurrentFrameTrace(fault, frameIdx) {
+      if (!fault) return null;
+      const curKf = (fault.keyframes || []).find(k => k.active_frame === frameIdx);
+      if (curKf && curKf.pts && curKf.pts.length > 0) {
+        return { type: 'keyframe', kf: curKf, pts: curKf.pts };
+      }
+      if (fault.interpolated_traces && fault.interpolated_traces[frameIdx]) {
+        return { type: 'interp', kf: null, pts: fault.interpolated_traces[frameIdx] };
+      }
+      return null;
+    }
+
+    function updateInterpolatedEnvelopeForFrame(fault, frameIdx) {
+      if (!fault) return;
+      fault.interpolated_overrides = fault.interpolated_overrides || {};
+      const iPts = fault.interpolated_traces ? fault.interpolated_traces[frameIdx] : null;
+
+      if (iPts && iPts.length > 0) {
+        fault.interpolated_overrides[frameIdx] = iPts.map(p => [...p]);
+      } else {
+        fault.interpolated_overrides[frameIdx] = [];
+      }
+
+      if (fault.lateral_envelope) {
+        const envEntry = fault.lateral_envelope.find(e => e.active_frame === frameIdx);
+        if (envEntry) {
+          if (iPts && iPts.length >= 2) {
+            const ys = iPts.map(p => p[1]);
+            envEntry.yMin = Number(Math.min(...ys).toFixed(1));
+            envEntry.yMax = Number(Math.max(...ys).toFixed(1));
+            envEntry.span = Number((envEntry.yMax - envEntry.yMin).toFixed(1));
+            envEntry.is_manual = true;
+          } else if (iPts && iPts.length === 1) {
+            envEntry.yMin = Number(iPts[0][1].toFixed(1));
+            envEntry.yMax = Number(iPts[0][1].toFixed(1));
+            envEntry.span = 0;
+            envEntry.is_manual = true;
+          } else {
+            envEntry.span = 0;
+            envEntry.is_manual = true;
+          }
+        }
+      }
+    }
+
+    /**
+     * Delete a vertex near screen position (mx, my), supporting
+     * BOTH exact keyframes AND two-point interpolated peak traces.
+     */
+    function deleteVertexNear(mx, my, radiusPx = 15) {
+      const actF = getActiveFault();
+      if (!actF || actF.locked) return false;
+
+      const plotRects = getMapPlotRects();
+      const frameIdx = state.currentFrameIdx;
+
+      // 1. Check exact keyframe on current frame
+      const curKf = (actF.keyframes || []).find(k => k.active_frame === frameIdx);
+      if (curKf && curKf.pts && curKf.pts.length > 0) {
+        for (let pIdx = curKf.pts.length - 1; pIdx >= 0; pIdx--) {
+          const s = mapWorldToScreen(curKf.pts[pIdx][0], curKf.pts[pIdx][1], plotRects[0]);
+          if (Math.hypot(s.x - mx, s.y - my) <= radiusPx) {
+            const delPt = curKf.pts.splice(pIdx, 1)[0];
+            setStatus(`✂️ Titik keyframe (X: ${delPt[0]}, Y: ${delPt[1]} mm) berhasil dihapus dari Frame #${state.exp.photo_frames[frameIdx]}!`);
+            refreshAllUI();
+            return true;
+          }
+        }
+      }
+
+      // 2. Check interpolated trace on current frame
+      if (actF.interpolated_traces && actF.interpolated_traces[frameIdx]) {
+        const iPts = actF.interpolated_traces[frameIdx];
+        for (let pIdx = iPts.length - 1; pIdx >= 0; pIdx--) {
+          const s = mapWorldToScreen(iPts[pIdx][0], iPts[pIdx][1], plotRects[0]);
+          if (Math.hypot(s.x - mx, s.y - my) <= radiusPx) {
+            const delPt = iPts.splice(pIdx, 1)[0];
+            updateInterpolatedEnvelopeForFrame(actF, frameIdx);
+            setStatus(`✂️ Titik interpolasi (X: ${delPt[0]}, Y: ${delPt[1]} mm) berhasil dihapus dari Frame #${state.exp.photo_frames[frameIdx]}!`);
+            refreshAllUI();
+            return true;
+          }
+        }
+      }
+
+      return false;
+    }
+
+    function trimCurrentFrameTip(whichEnd) {
+      const actF = getActiveFault();
+      if (!actF || actF.locked) return;
+      const trace = getCurrentFrameTrace(actF, state.currentFrameIdx);
+      if (!trace || !trace.pts || trace.pts.length === 0) {
+        setStatus(`⚠️ Tidak ada titik sesar pada frame ini untuk dipangkas.`);
+        return;
+      }
+      trace.pts.sort((a, b) => a[1] - b[1]);
+      let removedPt;
+      if (whichEnd === 'bottom') {
+        removedPt = trace.pts.shift();
+      } else {
+        removedPt = trace.pts.pop();
+      }
+      if (trace.type === 'interp') {
+        updateInterpolatedEnvelopeForFrame(actF, state.currentFrameIdx);
+      }
+      const ys = trace.pts.map(p => p[1]);
+      const span = ys.length >= 2 ? (Math.max(...ys) - Math.min(...ys)).toFixed(0) : '0';
+      setStatus(`✂️ Titik ujung ${whichEnd === 'bottom' ? 'bawah (-Y)' : 'atas (+Y)'} (Y: ${removedPt[1]} mm) dipangkas! Sisa ${trace.pts.length} titik (Span: ${span} mm).`);
+      refreshAllUI();
+    }
+
+    function autoTrimJumpsCurrentFrame(maxJumpMm = 15) {
+      const actF = getActiveFault();
+      if (!actF || actF.locked) return;
+      const trace = getCurrentFrameTrace(actF, state.currentFrameIdx);
+      if (!trace || !trace.pts || trace.pts.length < 3) {
+        setStatus(`⚠️ Titik pada frame ini terlalu sedikit untuk analisis lompatan.`);
+        return;
+      }
+
+      trace.pts.sort((a, b) => a[1] - b[1]);
+      const segments = [];
+      let curSeg = [trace.pts[0]];
+
+      for (let i = 1; i < trace.pts.length; i++) {
+        const prev = trace.pts[i - 1];
+        const curr = trace.pts[i];
+        const dx = Math.abs(curr[0] - prev[0]);
+        const dist = Math.hypot(curr[0] - prev[0], curr[1] - prev[1]);
+        if (dx > maxJumpMm || dist > 32.0) {
+          segments.push(curSeg);
+          curSeg = [curr];
+        } else {
+          curSeg.push(curr);
+        }
+      }
+      segments.push(curSeg);
+
+      if (segments.length <= 1) {
+        setStatus(`ℹ️ Tidak terdeteksi lompatan horizontal diskontinyu (|ΔX| > ${maxJumpMm} mm) pada frame ini.`);
+        return;
+      }
+
+      const corrX = actF.corridor ? (actF.corridor[0] + actF.corridor[1]) * 0.5 : state.exp.x_max_mm * 0.5;
+      let bestSeg = segments[0];
+      let bestScore = -Infinity;
+
+      segments.forEach(seg => {
+        const meanX = seg.reduce((a, b) => a + b[0], 0) / seg.length;
+        const xDist = Math.abs(meanX - corrX);
+        const score = seg.length * 10 - xDist;
+        if (score > bestScore) {
+          bestScore = score;
+          bestSeg = seg;
+        }
+      });
+
+      const prunedCount = trace.pts.length - bestSeg.length;
+      trace.pts.length = 0;
+      bestSeg.forEach(p => trace.pts.push(p));
+
+      if (trace.type === 'interp') {
+        updateInterpolatedEnvelopeForFrame(actF, state.currentFrameIdx);
+      }
+
+      const ys = trace.pts.map(p => p[1]);
+      const span = ys.length >= 2 ? (Math.max(...ys) - Math.min(...ys)).toFixed(0) : '0';
+      setStatus(`🧹 Sukses! ${prunedCount} titik cabang lompatan dipangkas! Sisa ${trace.pts.length} titik pada sesar utama (Span: ${span} mm).`);
+      refreshAllUI();
+    }
+
+    function clearCurrentFramePoints() {
+      const actF = getActiveFault();
+      if (!actF || actF.locked) return;
+      const trace = getCurrentFrameTrace(actF, state.currentFrameIdx);
+      if (!trace || !trace.pts || trace.pts.length === 0) {
+        setStatus(`ℹ️ Frame ini memang tidak memiliki titik sesar.`);
+        return;
+      }
+      trace.pts.length = 0;
+      if (trace.type === 'interp') {
+        updateInterpolatedEnvelopeForFrame(actF, state.currentFrameIdx);
+      }
+      setStatus(`🗑️ Seluruh titik sesar pada Frame #${state.exp.photo_frames[state.currentFrameIdx]} telah dihapus.`);
+      refreshAllUI();
+    }
+
+    function revertCurrentFrameInterp() {
+      const actF = getActiveFault();
+      if (!actF || actF.locked) return;
+      if (actF.interpolated_overrides) {
+        delete actF.interpolated_overrides[state.currentFrameIdx];
+      }
+      detectPeaksBetweenOnsetAndBreach(actF);
+      setStatus(`↩️ Hasil deteksi puncak otomatis dipulihkan untuk Frame #${state.exp.photo_frames[state.currentFrameIdx]}.`);
+      refreshAllUI();
+    }
+
+    function freezeCurrentFrameAsKeyframe() {
+      const actF = getActiveFault();
+      if (!actF || actF.locked) return;
+      const trace = getCurrentFrameTrace(actF, state.currentFrameIdx);
+      if (!trace || !trace.pts || trace.pts.length < 2) {
+        setStatus(`⚠️ Minimal butuh 2 titik untuk dibekukan menjadi keyframe.`);
+        return;
+      }
+      const photoFrame = state.exp.photo_frames[state.currentFrameIdx];
+      const strainPct = state.exp.strains[state.currentFrameIdx];
+      recordFaultKeyframeAtCurrentFrame(actF, 'growth', trace.pts.map(p => [...p]));
+      setStatus(`💾 Frame #${photoFrame} (ε=${strainPct.toFixed(2)}%) berhasil dibekukan sebagai keyframe mandiri!`);
+      refreshAllUI();
+    }
+
     // --- AUTO-SCAN TIMING ACROSS FRAMES WITHIN FAULT CORRIDOR ---
     function autoScanFaultTiming() {
       const exp = state.exp;
@@ -2029,17 +2383,42 @@
           mapCtx.stroke();
           mapCtx.setLineDash([]);
 
-          // Draw endpoint rings
-          [iPts[0], iPts[iPts.length - 1]].forEach(pt => {
-            const s = mapWorldToScreen(pt[0], pt[1], rect);
-            mapCtx.beginPath();
-            mapCtx.arc(s.x, s.y, isActFault ? 3.5 : 2.2, 0, Math.PI * 2);
-            mapCtx.fillStyle = isPeak ? '#facc15' : f.color;
-            mapCtx.fill();
-            mapCtx.strokeStyle = '#000000';
-            mapCtx.lineWidth = 1;
-            mapCtx.stroke();
-          });
+          // Draw vertex nodes for active fault, or endpoint rings for inactive faults
+          if (isActFault) {
+            iPts.forEach((pt, pIdx) => {
+              const s = mapWorldToScreen(pt[0], pt[1], rect);
+              const isEnd = (pIdx === 0 || pIdx === iPts.length - 1);
+              const isHovered = (state.hoveredVertex && state.hoveredVertex.isInterp && state.hoveredVertex.ptIdx === pIdx);
+              mapCtx.beginPath();
+              mapCtx.arc(s.x, s.y, isHovered ? 5.5 : (isEnd ? 4.0 : (state.activeTool === 'eraser' ? 3.2 : 2.4)), 0, Math.PI * 2);
+              if (isHovered) {
+                mapCtx.fillStyle = '#f43f5e';
+                mapCtx.strokeStyle = '#ffffff';
+                mapCtx.lineWidth = 2.0;
+              } else if (isEnd) {
+                mapCtx.fillStyle = isPeak ? '#facc15' : f.color;
+                mapCtx.strokeStyle = '#000000';
+                mapCtx.lineWidth = 1.2;
+              } else {
+                mapCtx.fillStyle = (state.activeTool === 'eraser') ? 'rgba(244, 63, 94, 0.85)' : 'rgba(255, 255, 255, 0.80)';
+                mapCtx.strokeStyle = '#070b12';
+                mapCtx.lineWidth = 0.8;
+              }
+              mapCtx.fill();
+              mapCtx.stroke();
+            });
+          } else {
+            [iPts[0], iPts[iPts.length - 1]].forEach(pt => {
+              const s = mapWorldToScreen(pt[0], pt[1], rect);
+              mapCtx.beginPath();
+              mapCtx.arc(s.x, s.y, 2.2, 0, Math.PI * 2);
+              mapCtx.fillStyle = f.color;
+              mapCtx.fill();
+              mapCtx.strokeStyle = '#000000';
+              mapCtx.lineWidth = 1;
+              mapCtx.stroke();
+            });
+          }
 
           // Badge for active fault
           if (isActFault) {
@@ -2099,6 +2478,40 @@
         mapCtx.fillText(rect.title, tl.x, tl.y - 7);
         mapCtx.restore();
       });
+
+      // 6. Hovered Vertex Reticle & Target Indicator for Eraser / Alt-Delete
+      if (state.hoveredVertex) {
+        const hv = state.hoveredVertex;
+        mapCtx.save();
+        mapCtx.beginPath();
+        mapCtx.arc(hv.x, hv.y, 11, 0, Math.PI * 2);
+        mapCtx.strokeStyle = '#f43f5e';
+        mapCtx.lineWidth = 2.0;
+        mapCtx.setLineDash([3, 2]);
+        mapCtx.stroke();
+        mapCtx.setLineDash([]);
+
+        mapCtx.beginPath();
+        mapCtx.moveTo(hv.x - 5, hv.y - 5);
+        mapCtx.lineTo(hv.x + 5, hv.y + 5);
+        mapCtx.moveTo(hv.x + 5, hv.y - 5);
+        mapCtx.lineTo(hv.x - 5, hv.y + 5);
+        mapCtx.strokeStyle = '#ffffff';
+        mapCtx.lineWidth = 2.0;
+        mapCtx.stroke();
+
+        const tipText = `✂️ Hapus (X:${hv.pt[0]}, Y:${hv.pt[1]})`;
+        mapCtx.font = 'bold 9px monospace';
+        const tw = mapCtx.measureText(tipText).width;
+        mapCtx.fillStyle = 'rgba(15, 23, 42, 0.95)';
+        mapCtx.fillRect(hv.x + 12, hv.y - 8, tw + 8, 16);
+        mapCtx.strokeStyle = '#f43f5e';
+        mapCtx.lineWidth = 1.0;
+        mapCtx.strokeRect(hv.x + 12, hv.y - 8, tw + 8, 16);
+        mapCtx.fillStyle = '#fecdd3';
+        mapCtx.fillText(tipText, hv.x + 16, hv.y + 4);
+        mapCtx.restore();
+      }
 
       // Update Top-Left HUD
       const pFrame = exp.photo_frames[frameIdx];
@@ -2672,6 +3085,26 @@
           badgeInterp.className = 'flex items-center gap-1.5 px-2.5 py-1 rounded text-[11px] font-mono border border-slate-700 bg-slate-900/90 text-slate-400';
         }
       }
+
+      // Update Point Count & Info for Current Frame in Sidebar Module
+      const ptsInfoEl = document.getElementById('txt-pts-count-info');
+      if (ptsInfoEl) {
+        const curKf = (actF.keyframes || []).find(k => k.active_frame === state.currentFrameIdx);
+        if (curKf && curKf.pts && curKf.pts.length > 0) {
+          const ys = curKf.pts.map(p => p[1]);
+          const span = ys.length >= 2 ? (Math.max(...ys) - Math.min(...ys)).toFixed(0) : '0';
+          ptsInfoEl.innerHTML = `<span class="text-amber-300 font-bold">⭐ Keyframe: ${curKf.pts.length} titik (${span} mm)</span>`;
+        } else if (actF.interpolated_traces && actF.interpolated_traces[state.currentFrameIdx] && actF.interpolated_traces[state.currentFrameIdx].length > 0) {
+          const iPts = actF.interpolated_traces[state.currentFrameIdx];
+          const ys = iPts.map(p => p[1]);
+          const span = ys.length >= 2 ? (Math.max(...ys) - Math.min(...ys)).toFixed(0) : '0';
+          const isOverridden = actF.interpolated_overrides && actF.interpolated_overrides[state.currentFrameIdx];
+          const tag = isOverridden ? '✂️ Dikoreksi' : '⚡ Puncak';
+          ptsInfoEl.innerHTML = `<span class="text-sky-300 font-bold">${tag}: ${iPts.length} titik (${span} mm)</span>`;
+        } else {
+          ptsInfoEl.innerHTML = `<span class="text-slate-500">0 titik pada frame ini</span>`;
+        }
+      }
     }
 
     function renderQuickKeyframePills() {
@@ -2785,11 +3218,60 @@
         }
 
         const w = screenToMapWorld(mx, my);
+        const actF = getActiveFault();
+
         if (state.draggedVertex) {
           state.draggedVertex[0] = Number(w.x_mm.toFixed(1));
           state.draggedVertex[1] = Number(w.y_mm.toFixed(1));
+          if (state.draggedIsInterp) {
+            updateInterpolatedEnvelopeForFrame(actF, state.currentFrameIdx);
+          }
           refreshAllUI();
           return;
+        }
+
+        // Drag-to-erase brush in Eraser mode
+        if (state.activeTool === 'eraser' && (e.buttons === 1)) {
+          deleteVertexNear(mx, my, 18);
+          return;
+        }
+
+        // Hover vertex detection for targeting indicator
+        let foundHover = null;
+        if (actF) {
+          const plotRects = getMapPlotRects();
+          const curKf = actF.keyframes?.find(k => k.active_frame === state.currentFrameIdx);
+          if (curKf && curKf.pts) {
+            for (let pIdx = 0; pIdx < curKf.pts.length; pIdx++) {
+              const s = mapWorldToScreen(curKf.pts[pIdx][0], curKf.pts[pIdx][1], plotRects[0]);
+              if (Math.hypot(s.x - mx, s.y - my) <= 12) {
+                foundHover = { x: s.x, y: s.y, pt: curKf.pts[pIdx], isInterp: false, ptIdx: pIdx };
+                break;
+              }
+            }
+          } else if (actF.interpolated_traces && actF.interpolated_traces[state.currentFrameIdx]) {
+            const iPts = actF.interpolated_traces[state.currentFrameIdx];
+            for (let pIdx = 0; pIdx < iPts.length; pIdx++) {
+              const s = mapWorldToScreen(iPts[pIdx][0], iPts[pIdx][1], plotRects[0]);
+              if (Math.hypot(s.x - mx, s.y - my) <= 12) {
+                foundHover = { x: s.x, y: s.y, pt: iPts[pIdx], isInterp: true, ptIdx: pIdx };
+                break;
+              }
+            }
+          }
+        }
+        const prevHover = state.hoveredVertex;
+        state.hoveredVertex = foundHover;
+        if ((prevHover && !foundHover) || (!prevHover && foundHover) || (prevHover && foundHover && prevHover.pt !== foundHover.pt)) {
+          renderMapView();
+        }
+
+        if (state.activeTool === 'eraser' || e.altKey) {
+          mapCanvas.style.cursor = foundHover ? 'pointer' : 'crosshair';
+        } else if (state.activeTool === 'panzoom') {
+          mapCanvas.style.cursor = 'grab';
+        } else {
+          mapCanvas.style.cursor = foundHover ? 'grab' : 'crosshair';
         }
 
         const srVal = sampleMapValue('SR', state.currentFrameIdx, w.x_mm, w.y_mm);
@@ -2814,20 +3296,31 @@
         const w = screenToMapWorld(mx, my);
         const actF = getActiveFault();
 
-        // Check if clicking near an existing vertex at the current frame to drag or Alt-delete
-        if (actF && actF.keyframes) {
-          const curKf = actF.keyframes.find(k => k.active_frame === state.currentFrameIdx);
+        // 1. Eraser mode OR Alt-click: Delete vertex directly
+        if (state.activeTool === 'eraser' || e.altKey) {
+          if (deleteVertexNear(mx, my, 16)) return;
+        }
+
+        // 2. Check clicking near an existing vertex to drag
+        if (actF) {
+          const plotRects = getMapPlotRects();
+          const curKf = actF.keyframes?.find(k => k.active_frame === state.currentFrameIdx);
           if (curKf && curKf.pts) {
-            const plotRects = getMapPlotRects();
             for (let pIdx = 0; pIdx < curKf.pts.length; pIdx++) {
               const s = mapWorldToScreen(curKf.pts[pIdx][0], curKf.pts[pIdx][1], plotRects[0]);
-              if (Math.hypot(s.x - mx, s.y - my) <= 9) {
-                if (e.altKey) {
-                  curKf.pts.splice(pIdx, 1);
-                  refreshAllUI();
-                } else {
-                  state.draggedVertex = curKf.pts[pIdx];
-                }
+              if (Math.hypot(s.x - mx, s.y - my) <= 12) {
+                state.draggedVertex = curKf.pts[pIdx];
+                state.draggedIsInterp = false;
+                return;
+              }
+            }
+          } else if (actF.interpolated_traces && actF.interpolated_traces[state.currentFrameIdx]) {
+            const iPts = actF.interpolated_traces[state.currentFrameIdx];
+            for (let pIdx = 0; pIdx < iPts.length; pIdx++) {
+              const s = mapWorldToScreen(iPts[pIdx][0], iPts[pIdx][1], plotRects[0]);
+              if (Math.hypot(s.x - mx, s.y - my) <= 12) {
+                state.draggedVertex = iPts[pIdx];
+                state.draggedIsInterp = true;
                 return;
               }
             }
@@ -2866,6 +3359,7 @@
       window.addEventListener('mouseup', () => {
         state.isPanning = false;
         state.draggedVertex = null;
+        state.draggedIsInterp = false;
       });
 
       // Map Canvas Wheel Zoom
@@ -2967,16 +3461,28 @@
         'tool-autotrack': 'autotrack',
         'tool-guidesnap': 'guidesnap',
         'tool-manual': 'manual',
-        'tool-panzoom': 'panzoom'
+        'tool-panzoom': 'panzoom',
+        'tool-eraser': 'eraser'
       };
       Object.entries(toolMap).forEach(([id, tKey]) => {
-        document.getElementById(id).addEventListener('click', () => {
+        document.getElementById(id)?.addEventListener('click', () => {
           state.activeTool = tKey;
           state.guidedSeedA = null;
           document.querySelectorAll('.tool-btn').forEach(b => b.classList.remove('active'));
-          document.getElementById(id).classList.add('active');
+          document.getElementById(id)?.classList.add('active');
+          if (tKey === 'eraser') {
+            setStatus('✂️ Mode Hapus Titik (Eraser) aktif: Klik titik manapun atau drag melintasi titik-titik keliru untuk menghapusnya.');
+          }
         });
       });
+
+      // Sidebar Module: Koreksi & Pangkas Titik
+      document.getElementById('btn-trim-bottom')?.addEventListener('click', () => trimCurrentFrameTip('bottom'));
+      document.getElementById('btn-trim-top')?.addEventListener('click', () => trimCurrentFrameTip('top'));
+      document.getElementById('btn-auto-clean-jumps')?.addEventListener('click', () => autoTrimJumpsCurrentFrame(15));
+      document.getElementById('btn-clear-frame-trace')?.addEventListener('click', clearCurrentFramePoints);
+      document.getElementById('btn-revert-interp')?.addEventListener('click', revertCurrentFrameInterp);
+      document.getElementById('btn-freeze-keyframe')?.addEventListener('click', freezeCurrentFrameAsKeyframe);
 
       // Dedicated 2-Point Deteksi Awal (⭐) & Deteksi Final (🏁) Handlers
       const setDeteksiMode = (targetStage) => {
@@ -3267,6 +3773,8 @@
         else if (e.key === '2') document.getElementById('tool-guidesnap').click();
         else if (e.key === '3') document.getElementById('tool-manual').click();
         else if (e.key === '4') document.getElementById('tool-panzoom').click();
+        else if (e.key === '5' || e.key === 'x' || e.key === 'X' || e.key === 'e' || e.key === 'E') document.getElementById('tool-eraser')?.click();
+        else if (e.key === 'Delete' || e.key === 'Backspace') trimCurrentFrameTip('bottom');
         else if (e.key === 'z' || e.key === 'Z') document.getElementById('btn-snap-peak').click();
         else if (e.key === 'a' || e.key === 'A') document.getElementById('btn-detect-onset')?.click();
         else if (e.key === 'f' || e.key === 'F') document.getElementById('btn-detect-breach')?.click();

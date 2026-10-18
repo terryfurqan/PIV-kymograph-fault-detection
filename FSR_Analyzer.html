@@ -3875,7 +3875,19 @@
 
     window.addEventListener('DOMContentLoaded', () => {
       setupEvents();
-      loadExperiment('EXP_3');
+      const params = new URLSearchParams(window.location.search);
+      const expParam = params.get('exp') || 'EXP_3';
+      loadExperiment(expParam);
+      if (params.get('benchmark') === '1' || params.get('benchmark') === 'true') {
+        setTimeout(loadBenchmarkFaults, 100);
+      }
+      const frameParam = params.get('frame');
+      if (frameParam !== null) {
+        setTimeout(() => {
+          state.currentFrameIdx = parseInt(frameParam, 10) || 0;
+          refreshAllUI();
+        }, 150);
+      }
     });
   </script>
 </body>

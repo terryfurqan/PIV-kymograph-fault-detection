@@ -134,10 +134,22 @@
       </label>
 
       <!-- Orientation Flip Toggle: Pusher Left-to-Right -->
-      <button id="btn-toggle-flip" class="flex items-center space-x-1.5 text-sky-200 bg-sky-950/80 hover:bg-sky-900 px-2.5 py-1 rounded border border-sky-600 cursor-pointer font-bold text-xs transition shadow-sm" title="Orientasi Tampilan: Dinding Pendorong bergerak dari Kiri ke Kanan [Hotkey: H]">
+      <button id="btn-toggle-flip" class="flex items-center space-x-1.5 text-sky-200 bg-sky-950/80 hover:bg-sky-900 px-2.5 py-1 rounded border border-sky-600 cursor-pointer font-bold text-xs transition shadow-sm" title="Orientasi Horizontal: Dinding Pendorong bergerak dari Kiri ke Kanan [Hotkey: H]">
         <span>🔁</span>
         <span id="txt-flip-label">Dorongan: Kiri ➔ Kanan</span>
       </button>
+
+      <!-- Vertical Flip Toggle: VG & SR Flip Up/Down -->
+      <button id="btn-toggle-flip-v" class="flex items-center space-x-1.5 text-purple-200 bg-purple-950/80 hover:bg-purple-900 px-2.5 py-1 rounded border border-purple-600 cursor-pointer font-bold text-xs transition shadow-sm" title="Flip Vertikal: Balik VG & SR Atas/Bawah [Hotkey: V]">
+        <span>⇅</span>
+        <span id="txt-flip-v-label">VG/SR: Flip Up/Down (ON)</span>
+      </button>
+
+      <!-- Lock Zoom Badge -->
+      <div id="badge-lock-zoom" class="flex items-center space-x-1 text-emerald-300 bg-emerald-950/80 px-2.5 py-1 rounded border border-emerald-600 font-bold text-xs shadow-sm" title="Zoom Kanvas Dikunci (1:1 Physical Aspect Fit)">
+        <span>🔒</span>
+        <span>Zoom: Dikunci</span>
+      </div>
 
       <!-- Background Photo Overlay & Blend Controls -->
       <div class="flex items-center space-x-1.5 bg-slate-800/90 px-2.5 py-1 rounded border border-slate-700">
@@ -647,6 +659,8 @@
       showTransects: true,
       showGhostTrace: true,  // Toggle ghost continuity line from prior frame
       flipHorizontal: true,  // Default: Pusher on LEFT moving to RIGHT (standard sandbox convention)
+      flipVertical: true,    // Default: VG & SR flipped vertically up/down (aligns with sandpack cracks)
+      zoomLocked: true,      // Default: Map View zoom locked (1:1 physical aspect ratio)
       photoOverlayEnabled: true, // Default: Background Photo ON
       photoOpacity: 0.50,        // 0.00 = pure heatmap, 1.00 = pure photo, 0.50 = optimal blend
       photoCache: new Map(),     // in-memory image cache: expId_frameIdx -> Image
@@ -2089,19 +2103,43 @@
       const totalW = mapCanvas.width - m.left - m.right;
       const totalH = mapCanvas.height - m.top - m.bottom;
 
+      // True physical aspect ratio: Delta X (450 mm) / Delta Y (347 mm)
+      const exp = state.exp;
+      const deltaX = exp ? exp.x_max_mm : 450.0;
+      const deltaY = exp ? (exp.y_max_mm - exp.y_min_mm) : 347.0;
+      const aspectRatio = deltaX / (deltaY || 347.0);
+
       if (state.viewMode === 'DUAL') {
         const gap = 36;
-        const singleW = (totalW - gap) / 2;
+        let singleW = (totalW - gap) / 2;
+        let plotH = Math.round(singleW / aspectRatio);
+        if (plotH > totalH) {
+          plotH = totalH;
+          singleW = Math.round(plotH * aspectRatio);
+        }
+        const usedW = singleW * 2 + gap;
+        const startX = m.left + Math.max(0, Math.round((totalW - usedW) / 2));
+        const startY = m.top + Math.max(0, Math.round((totalH - plotH) / 2));
         return [
-          { proxy: 'SR', title: 'Map View (A): Shortening Rate (SR: e_xx = -du/dx)', x: m.left, y: m.top, w: singleW, h: totalH },
-          { proxy: 'VG', title: 'Map View (B): Velocity Gradient (VG: |d|V|/dx|)', x: m.left + singleW + gap, y: m.top, w: singleW, h: totalH }
+          { proxy: 'SR', title: 'Map View (A): Shortening Rate (SR: e_xx = -du/dx)', x: startX, y: startY, w: singleW, h: plotH },
+          { proxy: 'VG', title: 'Map View (B): Velocity Gradient (VG: |d|V|/dx|)', x: startX + singleW + gap, y: startY, w: singleW, h: plotH }
         ];
       } else {
         const proxy = state.viewMode;
         const title = (proxy === 'VG')
           ? 'View M (2D Map View): Spatial Velocity Magnitude Gradient (VG: |d|V|/dx|)'
           : 'View M (2D Map View): Longitudinal Shortening Rate (SR: e_xx = -du/dx)';
-        return [{ proxy, title, x: m.left, y: m.top, w: totalW, h: totalH }];
+        
+        // Fixed panjang X, lebar Y menyesuaikan true physical aspect ratio (kunci aspect ratio)
+        let plotW = totalW;
+        let plotH = Math.round(plotW / aspectRatio);
+        if (plotH > totalH) {
+          plotH = totalH;
+          plotW = Math.round(plotH * aspectRatio);
+        }
+        const startX = m.left + Math.max(0, Math.round((totalW - plotW) / 2));
+        const startY = m.top + Math.max(0, Math.round((totalH - plotH) / 2));
+        return [{ proxy, title, x: startX, y: startY, w: plotW, h: plotH }];
       }
     }
 
@@ -2110,11 +2148,15 @@
       const nx = state.flipHorizontal
         ? (exp.x_max_mm - x_mm) / exp.x_max_mm
         : (x_mm / exp.x_max_mm);
-      // Y=y_min_mm at bottom, Y=y_max_mm at top (matches Nadir Map View)
-      const ny = (y_mm - exp.y_min_mm) / (exp.y_max_mm - exp.y_min_mm);
+      // Flip vertical support: when flipVertical is true, row 0 / y_min is at top (dispRow = 0)
+      const rawNy = (y_mm - exp.y_min_mm) / (exp.y_max_mm - exp.y_min_mm);
+      const ny = state.flipVertical ? rawNy : (1.0 - rawNy);
       const rawX = rect.x + nx * rect.w;
-      const rawY = rect.y + (1.0 - ny) * rect.h;
+      const rawY = rect.y + ny * rect.h;
 
+      if (state.zoomLocked) {
+        return { x: rawX, y: rawY };
+      }
       const cx = mapCanvas.width / 2;
       const cy = mapCanvas.height / 2;
       return {
@@ -2126,10 +2168,14 @@
     function screenToMapWorld(scrX, scrY) {
       const exp = state.exp;
       const rects = getMapPlotRects();
-      const cx = mapCanvas.width / 2;
-      const cy = mapCanvas.height / 2;
-      const unX = (scrX - cx) / state.zoom - state.panX + cx;
-      const unY = (scrY - cy) / state.zoom - state.panY + cy;
+      let unX = scrX;
+      let unY = scrY;
+      if (!state.zoomLocked) {
+        const cx = mapCanvas.width / 2;
+        const cy = mapCanvas.height / 2;
+        unX = (scrX - cx) / state.zoom - state.panX + cx;
+        unY = (scrY - cy) / state.zoom - state.panY + cy;
+      }
 
       let activeRect = rects[0];
       if (rects.length > 1 && unX >= rects[1].x - 18) {
@@ -2137,7 +2183,8 @@
       }
 
       const nx = Math.max(0, Math.min(1, (unX - activeRect.x) / activeRect.w));
-      const ny = Math.max(0, Math.min(1, 1.0 - (unY - activeRect.y) / activeRect.h));
+      const rawFrac = Math.max(0, Math.min(1, (unY - activeRect.y) / activeRect.h));
+      const ny = state.flipVertical ? rawFrac : (1.0 - rawFrac);
 
       const x_mm = state.flipHorizontal
         ? (1.0 - nx) * exp.x_max_mm
@@ -2225,11 +2272,11 @@
 
         const showPhoto = state.photoOverlayEnabled && (state.photoOpacity > 0.0);
 
-        // 1. Build 2D Map ImageData in offscreenCanvas (Flip vertically so row 0 = bottom = y_min)
+        // 1. Build 2D Map ImageData in offscreenCanvas (Supports state.flipVertical: row 0 = top)
         const imgData = offscreenCtx.createImageData(exp.map_w, exp.map_h);
         const dst = imgData.data;
         for (let r = 0; r < exp.map_h; r++) {
-          const dispRow = (exp.map_h - 1) - r;
+          const dispRow = state.flipVertical ? r : ((exp.map_h - 1) - r);
           const srcOff = fOffset + r * exp.map_w;
           const dstOff = dispRow * exp.map_w * 4;
           for (let c = 0; c < exp.map_w; c++) {
@@ -3451,7 +3498,9 @@
         const mx = e.clientX - rect.left;
         const my = e.clientY - rect.top;
 
-        if (e.button === 1 || state.activeTool === 'panzoom') {
+        if (state.zoomLocked) {
+          state.isPanning = false;
+        } else if (e.button === 1 || state.activeTool === 'panzoom') {
           state.isPanning = true;
           state.dragStart = { x: mx - state.panX, y: my - state.panY };
           return;
@@ -3526,9 +3575,10 @@
         state.draggedIsInterp = false;
       });
 
-      // Map Canvas Wheel Zoom
+      // Map Canvas Wheel Zoom (Locked per user requirement to preserve true aspect ratio)
       mapCanvas.addEventListener('wheel', (e) => {
         e.preventDefault();
+        if (state.zoomLocked) return;
         const factor = e.deltaY < 0 ? 1.15 : 0.87;
         state.zoom = Math.max(0.6, Math.min(6.0, state.zoom * factor));
         renderMapView();
@@ -3813,6 +3863,30 @@
       };
       document.getElementById('btn-toggle-flip')?.addEventListener('click', toggleFlip);
 
+      // Vertical Flip Toggle (VG & SR Up/Down)
+      const toggleFlipV = () => {
+        state.flipVertical = !state.flipVertical;
+        const btn = document.getElementById('btn-toggle-flip-v');
+        const lbl = document.getElementById('txt-flip-v-label');
+        if (lbl) {
+          lbl.textContent = state.flipVertical ? 'VG/SR: Flip Up/Down (ON)' : 'VG/SR: Normal (OFF)';
+        }
+        if (btn) {
+          if (state.flipVertical) {
+            btn.classList.add('bg-purple-950/80', 'text-purple-200', 'border-purple-600');
+            btn.classList.remove('bg-slate-800', 'text-slate-400', 'border-slate-700');
+          } else {
+            btn.classList.remove('bg-purple-950/80', 'text-purple-200', 'border-purple-600');
+            btn.classList.add('bg-slate-800', 'text-slate-400', 'border-slate-700');
+          }
+        }
+        renderMapView();
+        setStatus(state.flipVertical
+          ? '⇅ VG & SR di-flip vertikal (Up/Down ON) — selaras foto rekahan pasir.'
+          : '⇅ VG & SR orientasi standar.');
+      };
+      document.getElementById('btn-toggle-flip-v')?.addEventListener('click', toggleFlipV);
+
       // Background Photo Overlay Toggle & Blend Slider
       const togglePhotoOverlay = () => {
         state.photoOverlayEnabled = !state.photoOverlayEnabled;
@@ -3999,6 +4073,7 @@
         else if (e.key === 'n' || e.key === 'N') document.getElementById('btn-next-detect')?.click();
         else if (e.key === 'b' || e.key === 'B') document.getElementById('btn-retro-track')?.click();
         else if (e.key === 'h' || e.key === 'H') toggleFlip();
+        else if (e.key === 'v' || e.key === 'V') toggleFlipV();
         else if (e.key === 'p' || e.key === 'P') togglePhotoOverlay();
         else if (e.key === '[') {
           const val = Math.max(0, Math.round(state.photoOpacity * 100 - 10));

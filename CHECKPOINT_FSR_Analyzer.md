@@ -1,4 +1,4 @@
-# Session Checkpoint: FSR Analyzer — 2D Map-View Horizon Auto-Tracking & Lateral Fault Kinematics (2026-10-18)
+# Session Checkpoint: FSR Analyzer — 2D Map-View Horizon Auto-Tracking & Lateral Fault Kinematics (2026-10-19)
 
 ## 1. Objective & Starting Context
 - **Target Eksperimen**:
@@ -9,7 +9,7 @@
   3. Memungkinkan pemilihan sesar bertahap (*multi-fault management*), pelacakan mundur (*backward & forward tracking*), deteksi tepi terluar strike sesar, serta penentuan timing nukleasi (*onset*) hingga tembus sempurna (*full breach*).
   4. Menggambar kurva **Along-Strike $Y$ versus Cumulative Strain $\varepsilon$ (Plot A)** untuk menghitung kecepatan propagasi lateral sesar ($V_{\text{lat}}$ dalam cm/min dan mm/s) serta regangan pembentukan sesar ($\Delta\varepsilon_{\text{rupture}}$).
   5. Mengintegrasikan citra foto asli (top-down DSLR nadir) sebagai *visual reference overlay* dengan slider transparansi (*opacity blending*).
-  6. Mengotomatiskan pelacakan 2-titik (*2-Point Auto-Tracking*) dengan **deteksi puncak fisik sub-pixel kuadratik** di antara frame awal dan final (bukan peregangan linear artifisial).
+  6. Mengotomatiskan pelacakan 2-titik (*2-Point Auto-Tracking*) dengan **deteksi puncak fisik sub-pixel kuadratik** di antara frame awal dan final.
 
 ---
 
@@ -21,20 +21,30 @@
   - Dua tombol khusus di toolbar: `[⭐ Deteksi Awal]` (Hotkey `A`) dan `[🏁 Deteksi Final]` (Hotkey `F`).
   - Algoritma `detectPeaksBetweenOnsetAndBreach`: melakukan *sub-pixel quadratic peak detection* (`snapXColAtRow`) pada frame perantara $t \in [t_{onset}, t_{breach}]$ di sepanjang koridor sesar dengan ambang batas fisika $T \ge 0.020$.
   - Panel **Plot A (Along-Strike $Y$ vs Cumulative Strain $\varepsilon$)** yang menampilkan amplop propagasi lateral riil $[Y_{\min}(t), Y_{\max}(t)]$.
-  - Slider *Photo Overlay Opacity* (0% - 100%) untuk memverifikasi struktur rekahan pasir terhadap foto asli.
+  - **Flip Vertikal VG & SR (Up/Down)**: Heatmap SR & VG dibalik vertikal (`dispRow = r`, `flipVertical: true`, Hotkey `V`), selaras persis dengan rekahan pasir pada foto.
+  - **Aspect Ratio Fisik 1:1 Terkunci**: Dimensi kanvas View M mengikuti rasio fisik sandbox $\Delta X / \Delta Y = 450.0 / 347.0 \approx 1.29683$ (panjang $X$ fixed, lebar $Y$ proporsional), sehingga grid pasir $2 \times 2\text{ cm}$ tampil bujur sangkar sempurna.
+  - **Zoom Kanvas Dikunci (`zoomLocked: true`)**: Wheel zoom dinonaktifkan permanen (`zoom = 1.0`, `panX = 0`, `panY = 0`) agar tampilan kanvas tidak sengaja melar atau tergeser.
+  - **Dual-Layer Photo Blend**: Slider transparansi foto latar belakang ($0\% - 100\%$, Hotkeys `[` dan `]`, toggle `P`) dengan *strain-weighted blending*.
+  - **Dual Editing Engine**: Alat toolbar `[✂️ Hapus Titik]` (Hotkey `5`/`X`) dan modul sidebar `Koreksi & Pangkas Titik` untuk menghapus titik interpolasi asing yang melompat.
   - Ekspor/impor katalog interpretasi ke format JSON (`FSR_Interpreted_Picks_EXP_*.json`) dan tabel metrik kinematika CSV (`FSR_Kinematics_EXP_*.csv`).
 - `/home/sandbox-main/1. RE_XnMP/launch_fsr_analyzer.py` (dan `launch_fsr_tracker.py`):
-  - Local HTTP daemon di `http://localhost:8089/FSR_Analyzer.html` dengan endpoint REST API `/api/save_picks` untuk menyimpan hasil picking langsung ke disk tanpa unduhan peramban manual.
+  - Local HTTP daemon di `http://localhost:8089/FSR_Analyzer.html` dengan endpoint REST API `/api/save_picks` untuk menyimpan hasil picking langsung ke disk.
+- `/home/sandbox-main/1. RE_XnMP/assets/resized_photos/`:
+  - 1.551 foto eksperimen terpotong presisi dan di-resize ke $960 \times 743\text{ px}$ (JPEG Q78, ~50–100 KB/frame):
+    - `EXP_3`: 312 frame (31 MB)
+    - `EXP_2`: 316 frame (30 MB)
+    - `EXP_1`: 397 frame (35 MB)
+    - `EXP_0`: 526 frame (46 MB)
 - `/home/sandbox-main/1. RE_XnMP/fsr_autotracker_data.js`:
-  - Basis data ringkas volume 3D $H \times W \times T$ untuk EXP 0, 1, 2, dan 3 (format `Uint8ClampedArray` terkompresi dengan metadata spasial/temporal) sehingga antarmuka dapat dibuka seketika.
-- `/home/sandbox-main/1. RE_XnMP/extract_kymograph_assets.py`:
-  - Skrip ekstraksi dan kompresi volume grid Map View SR/VG dari kontainer master `.npz`.
+  - Basis data ringkas volume 3D $H \times W \times T$ untuk EXP 0, 1, 2, dan 3.
 
-### B. Repositori GitHub & Komit
-- Repositori **`PIV-kymograph-fault-detection`** (`https://github.com/terryfurqan/PIV-kymograph-fault-detection.git`):
-  - Komit `cc775e7`: Menambahkan `FSR_Analyzer.html`, `launch_fsr_analyzer.py`, `extract_kymograph_assets.py`, `fsr_autotracker_data.js`, dan memperbarui `README.md` dengan dokumentasi lengkap FSR Analyzer.
-- Repositori **`00. AGY Skills`** (`https://github.com/terryfurqan/agy-skills.git`):
-  - Komit `50dc3da`: Menyinkronkan pembaruan skill `kymo-VG-SR-12-30line`, `gpu-image-crop-rotate`, `grain-piv-vg-sr-mp4`, `piv-lengkap-WFL`, `sbx-gif-cycle`, dan suite resize HandBrake.
+### B. Repositori GitHub & Otentikasi SSH
+- **Otentikasi SSH GitHub**:
+  - Kunci SSH `FD ITB` (`~/.ssh/id_ed25519`, fingerprint `SHA256:VrioobpEkGlkjaODJByxGyZrO+PDlCerITrAtjAKG34`) terotentikasi penuh dengan GitHub.
+- **Repositori `PIV-kymograph-fault-detection`** (`git@github.com:terryfurqan/PIV-kymograph-fault-detection.git`):
+  - Berhasil di-push ke branch `main` (`f08669a`).
+- **Repositori `00. AGY Skills`** (`git@github.com:terryfurqan/agy-skills.git`):
+  - Berhasil di-push ke branch `main` (`50dc3da`).
 
 ---
 
@@ -58,38 +68,33 @@
 
 ## 4. Current Status
 - **Working / Verified**:
-  - Aplikasi web `FSR_Analyzer.html` aktif dan melayani permintaan di `http://localhost:8089/FSR_Analyzer.html` (tersinkronkan ke `fsr_analyzer.html` dan `fsr_seismic_autotracker.html`).
-  - **Flip Vertikal VG & SR (Up/Down)** aktif secara default (`flipVertical: true` / Hotkey `V`), membuat pita inferno/plasma menempel persis di atas rekahan pasir pada foto.
-  - **Aspect Ratio Fisik 1:1 Terkunci**: Grid pasir tampak bujur sangkar murni ($450\text{ mm} : 347\text{ mm}$), dipusatkan di tengah kanvas secara rapi.
-  - **Zoom Kanvas Terkunci**: Wheel zoom dinonaktifkan, tampilan tetap stabil 100% tanpa risiko tergeser atau membesar tak terkontrol.
-  - Fitur **Foto Latar Belakang Eksperimen Ringan** aktif untuk seluruh eksperimen Thin Skin 2 cm (EXP 0, 1, 2, 3) di `assets/resized_photos/`.
-  - Repositori `PIV-kymograph-fault-detection` telah diperbarui dengan komit `d9b66da`.
-  - Fitur **Foto Latar Belakang Eksperimen Ringan** telah selesai di-generate dan aktif untuk seluruh eksperimen Thin Skin 2 cm:
-    - **EXP_3**: 312 frame ($960 \times 743\text{ px}$) di `assets/resized_photos/EXP_3/` (31 MB).
-    - **EXP_2**: 316 frame ($960 \times 743\text{ px}$) di `assets/resized_photos/EXP_2/` (30 MB).
-    - **EXP_1**: 397 frame ($960 \times 743\text{ px}$) di `assets/resized_photos/EXP_1/` (35 MB).
-    - **EXP_0**: 526 frame ($960 \times 743\text{ px}$) di `assets/resized_photos/EXP_0/` (46 MB).
-  - Slider `Blend: 0% .. 100%` dan tombol `[📷 Foto]` (Hotkey `P`) bekerja *real-time* dengan *strain-weighted alpha blending*.
-  - Pembalikan visual horizontal (`flipHorizontal: true`) sinkron sempurna antara foto latar, heatmap strain rate, garis pendorong, dan garis sesar.
-  - Repositori `PIV-kymograph-fault-detection` telah diperbarui dengan komit `2d6cf16`.
+  - Aplikasi web `FSR_Analyzer.html` aktif di `http://localhost:8089/FSR_Analyzer.html` (tersinkronkan ke `fsr_analyzer.html` dan `fsr_seismic_autotracker.html`).
+  - **Flip Vertikal VG & SR (Up/Down)** aktif default (`flipVertical: true`), pita inferno/plasma menempel persis di atas rekahan fisik pasir.
+  - **Aspect Ratio Fisik 1:1 Terkunci**: Grid pasir tampak bujur sangkar murni ($450\text{ mm} : 347\text{ mm}$).
+  - **Zoom Kanvas Terkunci**: Wheel zoom dan drag pan dinonaktifkan (`zoom = 1.0`, `panX = 0`, `panY = 0`), kanvas stabil 100%.
+  - **Foto Latar Belakang Eksperimen Ringan** aktif di `assets/resized_photos/` untuk EXP 0, 1, 2, 3.
+  - **GitHub Remote Sync via SSH**: Seluruh commit telah di-push sukses ke `git@github.com:terryfurqan/PIV-kymograph-fault-detection.git` dan `git@github.com:terryfurqan/agy-skills.git` menggunakan SSH key `FD ITB`.
 - **In-Progress / Pending**:
-  - `git push` ke repositori jarak jauh GitHub (`origin`) membutuhkan kredensial autentikasi Personal Access Token (PAT) atau konfigurasi SSH key pengguna saat berada di terminal interaktif.
-  - Batching interpretasi manual untuk sisa eksperimen Thin Skin 2 cm (EXP 0, EXP 1, EXP 2) dan ketebalan lainnya (4 cm, 6 cm, 8 cm).
+  - Batching interpretasi manual untuk 4 eksperimen Thin Skin 2 cm (EXP 0, EXP 1, EXP 2, EXP 3) menggunakan fitur 2-Point Auto-Tracking (`Deteksi Awal` & `Deteksi Final`).
+  - Kompilasi matriks komparatif kinematika propagasi lateral ($V_{\text{lat}}, \varepsilon_{\text{init}}, \varepsilon_{\text{full}}, \Delta\varepsilon_{\text{rupture}}$) lintas eksperimen.
+  - Penyiapan kompilasi visualisasi Plot A untuk bahan laporan/publikasi.
 - **Known Blockers / Caveats**:
-  - Disk eksternal `/run/media/sandbox-main/BIG DATA 6TB/` memiliki status read-only pada beberapa partisi, namun seluruh data Map View untuk FSR Analyzer telah tersimpan mandiri di basis data `fsr_autotracker_data.js`.
+  - Tidak ada kendala teknis atau otentikasi. Semua dependensi data dan server lokal siap pakai.
 
 ---
 
 ## 5. Next Session Scope & Action Plan
-1. **Eksekusi Penafsiran Sesar pada Eksperimen Lanjutan**:
-   - Menjalankan penafsiran FSR komparatif pada EXP 0, EXP 1, EXP 2, dan EXP 3 menggunakan `FSR_Analyzer.html`.
-   - Mengambil titik Awal (Inception) dan Final (Breach) untuk setiap sesar utama (F1 s.d. F5).
+1. **Eksekusi Penafsiran Sesar Interaktif (Picking)**:
+   - Membuka `http://localhost:8089/FSR_Analyzer.html` untuk Thin Skin 2 cm (EXP 0, 1, 2, 3).
+   - Menandai inisiasi (`[⭐ Deteksi Awal]`, Hotkey `A`) dan tembus sempurna (`[🏁 Deteksi Final]`, Hotkey `F`) untuk sesar-sesar utama (F1 s.d. F5).
+   - Melakukan koreksi titik / trimming jika terdapat lonjakan interpolasi menggunakan tool `[✂️ Hapus Titik]` (`5`/`X`) atau sidebar module.
 2. **Kompilasi Matriks Kinematika Komparatif**:
-   - Mengekspor `FSR_Interpreted_Picks_*.json` dan menghasilkan tabel perbandingan kecepatan propagasi lateral ($V_{\text{lat}}$), regangan nukleasi ($\varepsilon_{\text{init}}$), regangan tembus ($\varepsilon_{\text{full}}$), dan durasi tembus ($\Delta\varepsilon_{\text{rupture}}$) lintas eksperimen.
+   - Menyimpan hasil picking via tombol `💾 Simpan JSON` (tersimpan ke `FSR_Interpreted_Picks_EXP_*.json`).
+   - Mengompilasi tabel metrik lateral kinematics ($V_{\text{lat}}$, $\varepsilon_{\text{init}}$, $\varepsilon_{\text{full}}$, $\Delta\varepsilon_{\text{rupture}}$) lintas EXP 0, 1, 2, dan 3.
 3. **Penyelarasan Publikasi & Pelaporan**:
-   - Mengintegrasikan kurva Plot A hasil interpretasi FSR Analyzer ke dalam template PowerPoint (`sbx-slice-ppt` / `laporan-sbx-single`) atau manuskrip publikasi.
-4. **Push ke GitHub Remote**:
-   - Menjalankan `git push origin main` dengan Personal Access Token / SSH pada repositori `PIV-kymograph-fault-detection` dan `00. AGY Skills`.
+   - Mengintegrasikan Plot A ($Y \text{ vs } \varepsilon$) ke dalam slide PowerPoint (`sbx-slice-ppt` / `laporan-sbx-single`) atau manuskrip publikasi.
+4. **Git Sync**:
+   - Melakukan `git commit` dan `git push origin main` via SSH untuk menyimpan hasil picking JSON dan CSV ke GitHub.
 
 ---
 
